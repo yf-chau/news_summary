@@ -1,2 +1,5 @@
 feedparser
 pandas
+python-substack
+tenacity
+google-genai

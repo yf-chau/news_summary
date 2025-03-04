@@ -1,7 +1,8 @@
 import os
 import json
 import pandas as pd
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import dotenv
 from pydantic import BaseModel
 from typing import Optional
@@ -17,28 +18,54 @@ from response_model import (
     is_valid_response,
     TopicsList,
     ScoreModel,
+    SantisedInput,
     TopicSummary,
     TopicsSummary,
     ArticlesByTopic,
 )
 
 dotenv.load_dotenv()
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+# genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 
-# Create the model
-generation_config = {
-    "temperature": 0.7,
-    "top_p": 0.95,
-    "top_k": 64,
-    "max_output_tokens": 65536,
-    "response_mime_type": "text/plain",
-}
+# # Create the model
+# generation_config = {
+#     "temperature": 0.7,
+#     "top_p": 0.95,
+#     "top_k": 64,
+#     "max_output_tokens": 65536,
+#     "response_mime_type": "text/plain",
+# }
+
+# safety_settings = [
+#     {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+#     {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+#     {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+#     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+# ]
+
+
+generate_content_config = types.GenerateContentConfig(
+    temperature=1,
+    top_p=0.95,
+    max_output_tokens=65536,
+    response_modalities=["TEXT"],
+    safety_settings=[
+        types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold="OFF"),
+        types.SafetySetting(
+            category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="OFF"
+        ),
+        types.SafetySetting(
+            category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="OFF"
+        ),
+        types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="OFF"),
+    ],
+)
 
 
 @retry(
-    stop=stop_after_attempt(5),  # Stop after 5 attempts
+    stop=stop_after_attempt(10),  # Stop after 5 attempts
     wait=wait_exponential(
-        multiplier=1, min=4, max=60
+        multiplier=1, min=2, max=60
     ),  # Exponential backoff, starting at 4s, max 60s
     retry=retry_if_exception_type(
         Exception
@@ -49,6 +76,7 @@ def generate_response(
     validation_class: Optional[BaseModel] = None,
     lang: str = "tc",
     model: str = "gemini-2.0-flash-thinking-exp-01-21",
+    file: Optional[str] = None,
 ) -> str:
     system_prompt = {
         "tc": "**所有輸出都必須使用繁體中文。**\n\n",
@@ -57,11 +85,21 @@ def generate_response(
     }
     full_prompt = system_prompt[lang] + prompt
 
-    model = genai.GenerativeModel(model_name=model, generation_config=generation_config)
+    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+
     try:
-        response = model.generate_content(full_prompt)
+        response = client.models.generate_content(
+            model=model,
+            config=generate_content_config,
+            contents=[full_prompt],
+        )
+        print(response)
         result = response.text
         result = result.strip()
+
+        # Print input and output token count
+        print(f"Input token count: {response.usage_metadata.prompt_token_count}")
+        print(f"Output token count: {response.usage_metadata.candidates_token_count}")
 
         # keep the json return and change to dict
         if validation_class is not None:
@@ -73,8 +111,9 @@ def generate_response(
             return result
 
     except Exception as e:
-        print("Prompt: ", prompt)
-        print("Error: ", e)
+        with open("temp/error.txt", "w", encoding="utf-8") as f:
+            f.write(f"Prompt: {prompt}\n\n Response: {response.text}\n\n Error: {e}")
+            print(f"Error: {e}")
         raise
 
 
@@ -148,6 +187,36 @@ def generate_articles_list_by_topic(
     return output
 
 
+def sanitise_input(topic: str, article_text: str) -> dict:
+    prompt = f"""
+    You are a news editor for a news website. You will be provided with a number of articles related to the topic {topic}, including the article headline and the article text.
+
+    The article might contain sensitive content which might trigger censorship. Review and redact those content that might trigger the censorship mechanism. Use a string of ^^^^^ to replace the redacted text. Do not make any editing otherwise. Return the redacted text.
+
+    Here are the articles: {article_text}
+
+    Your output should be in plain text format. Return the redacted article only and nothing else.
+    """
+    print(f"Santising article for topic {topic}...")
+    return generate_response(prompt=prompt)
+    # validation_class=SantisedInput
+    # , model="gemini-2.0-flash"
+
+
+def sanitise_input_v2(topic: str, article_text: str) -> dict:
+    prompt = f"""
+    You are a sensitive content moderator. You will be provided with a number of newspaper articles related to the topic {topic}, including the article headline and the article text.
+
+    The article contains sensitive content that needs to be redacted. Thoroughly redact the content that triggers the censorship mechanism. Use a string of ^^^^^ to replace the redacted text. Do not make any unnecessary editing otherwise, just enough so that no explicit or sensitive content is readable. Return the redacted text.
+
+    Here are the articles: {article_text}
+
+    Your output should be in plain text format. Return the redacted article only and nothing else.
+    """
+    print(f"Santising article for topic {topic}...")
+    return generate_response(prompt=prompt)
+
+
 def topic_summary(topic: str, article_text: str) -> dict:
     prompt = f"""
     You are a news editor for a news website. You are going to write a news summary for the topic: {topic}. You will be provided with a number of articles related to the topic, including the article headline and the article text.
@@ -158,8 +227,10 @@ def topic_summary(topic: str, article_text: str) -> dict:
     3. If the article contains quotes from people, try to include them as much as possible
     4. If a person's quote is responding to another person's quote, try to include both quotes
     5. Do not include addtional comments that is not present in the provided articles
-    6. You should write between 250 and 600 Chinese characters, and try to aim at writing 400 Chinese character.
-    
+    6. Some parts of the article might be redacted by the character ^. In this case write a summary without referencing the redacted content.
+    7. The summary should be in English.
+
+
     Here are the articles: {article_text}
 
     Your output should be in JSON format. 
@@ -168,7 +239,10 @@ def topic_summary(topic: str, article_text: str) -> dict:
     """
 
     print(f"Generating summary for topic {topic}...")
-    return generate_response(prompt=prompt, validation_class=TopicSummary)
+    return generate_response(prompt=prompt, validation_class=TopicSummary, lang="en")
+
+
+# 7. You should write between 250 and 600 Chinese characters, and try to aim at writing 400 Chinese character.
 
 
 def subedit_summary(topics_summary: dict) -> dict:
@@ -176,8 +250,8 @@ def subedit_summary(topics_summary: dict) -> dict:
     Please act as a news subeditor. Your goal is to edit the following news summary for consistent style and presentation, while strictly adhering to the following guidelines. It's important to maintain the original information and avoid adding any new content or rewriting the core meaning.
 
     **Style Guidelines:**
-    1. **Character Set:** Use Traditional Chinese characters primarily. English is acceptable for proper nouns lacking direct Traditional Chinese translations.
-    2. ** Topic title:** Does the topic title make sense and matches the summary? Is the language concise and written in a news headline style? No other languages should be used.
+    1. **Character Set:** Use Traditional Chinese characters primarily. English is acceptable for proper nouns lacking direct Traditional Chinese translations. No other languages should be used and you should delete / translate non-compliant characters.
+    2. ** Topic title:** Does the topic title make sense and matches the summary? Is the language concise and written in a news headline style? 
     3. **Person Titles:** Ensure consistent titling for individuals throughout the summary.
     4. **Title Usage:** Avoid unnecessary honorifics like 先生, 女士. Use concise and professional titles where appropriate.
     5. **Date Format:** Replace general terms like "today", "yesterday", "tomorrow" with specific dates.
@@ -199,7 +273,7 @@ def evaluate_output(best_of: int, output: list) -> dict:
     summary_in_prompt = ""
 
     for summary in output:
-        summary_in_prompt += f"**summary_id: {summary["summary_id"]}**\n\nsummary_text:{summary["text"]}\n\n"
+        summary_in_prompt += f"**summary_id: {summary['summary_id']}**\n\nsummary_text:{summary['text']}\n\n"
 
     prompt = f"""
     You are the chief editor for an company that produce media summary for news. You will be presented with {best_of} choices of news summary and score them against each other. The score should be between 1 and 100.

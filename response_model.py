@@ -38,6 +38,10 @@ class ArticlesByTopic(BaseModel):
     topics: List[ArticlesListForATopic]
 
 
+class SantisedInput(BaseModel):
+    sanatised_input: str
+
+
 class TopicSummary(BaseModel):
     """
     Model for a single topic summary
