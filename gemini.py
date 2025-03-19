@@ -93,7 +93,6 @@ def generate_response(
             config=generate_content_config,
             contents=[full_prompt],
         )
-        print(response)
         result = response.text
         result = result.strip()
 
@@ -228,8 +227,7 @@ def topic_summary(topic: str, article_text: str) -> dict:
     4. If a person's quote is responding to another person's quote, try to include both quotes
     5. Do not include addtional comments that is not present in the provided articles
     6. Some parts of the article might be redacted by the character ^. In this case write a summary without referencing the redacted content.
-    7. The summary should be in English.
-
+    7. You should write between 250 and 600 Chinese characters, and try to aim at writing 400 Chinese character.
 
     Here are the articles: {article_text}
 
@@ -239,10 +237,7 @@ def topic_summary(topic: str, article_text: str) -> dict:
     """
 
     print(f"Generating summary for topic {topic}...")
-    return generate_response(prompt=prompt, validation_class=TopicSummary, lang="en")
-
-
-# 7. You should write between 250 and 600 Chinese characters, and try to aim at writing 400 Chinese character.
+    return generate_response(prompt=prompt, validation_class=TopicSummary)
 
 
 def subedit_summary(topics_summary: dict) -> dict:
@@ -250,7 +245,7 @@ def subedit_summary(topics_summary: dict) -> dict:
     Please act as a news subeditor. Your goal is to edit the following news summary for consistent style and presentation, while strictly adhering to the following guidelines. It's important to maintain the original information and avoid adding any new content or rewriting the core meaning.
 
     **Style Guidelines:**
-    1. **Character Set:** Use Traditional Chinese characters primarily. English is acceptable for proper nouns lacking direct Traditional Chinese translations. No other languages should be used and you should delete / translate non-compliant characters.
+    1. ** Character Set:** Use Traditional Chinese characters primarily. English is acceptable for proper nouns lacking direct Traditional Chinese translations. No other languages should be used and you should delete / translate non-compliant characters.
     2. ** Topic title:** Does the topic title make sense and matches the summary? Is the language concise and written in a news headline style? 
     3. **Person Titles:** Ensure consistent titling for individuals throughout the summary.
     4. **Title Usage:** Avoid unnecessary honorifics like 先生, 女士. Use concise and professional titles where appropriate.
