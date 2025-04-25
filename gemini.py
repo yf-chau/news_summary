@@ -75,7 +75,8 @@ def generate_response(
     prompt: str,
     validation_class: Optional[BaseModel] = None,
     lang: str = "tc",
-    model: str = "gemini-2.0-flash-thinking-exp-01-21",
+    # model: str = "gemini-2.0-flash-thinking-exp-01-21",
+    model: str = "gemini-2.5-pro-exp-03-25",
     file: Optional[str] = None,
 ) -> str:
     system_prompt = {
@@ -84,7 +85,6 @@ def generate_response(
         "en": "**All output should be in English only.**\n\n",
     }
     full_prompt = system_prompt[lang] + prompt
-
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
     try:
