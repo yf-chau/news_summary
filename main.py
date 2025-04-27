@@ -1,8 +1,9 @@
 import os
-import sys
 import json
+import dotenv
 import pandas as pd
 import gemini
+from datetime import datetime
 from utils import (
     generate_article_text,
     generate_article_links,
@@ -17,9 +18,13 @@ from tenacity import (
     retry_if_exception_type,
 )
 
+from substack_playwright import post_substack_draft
+
 temp_dir = "temp"
 if not os.path.exists(temp_dir):
     os.makedirs(temp_dir)
+
+dotenv.load_dotenv()
 
 # List of RSS feed URLs
 rss_feeds = {
@@ -41,7 +46,7 @@ rss_feeds = {
     # https://news.google.com/rss?pz=1&cf=all&hl=zh-HK&gl=HK&ceid=HK:zh-Hant
 }
 
-BEST_OF_OPTION = 5
+BEST_OF_OPTION = 3
 NUMBER_OF_TOPICS = 5
 
 # Main execution
@@ -72,9 +77,10 @@ if __name__ == "__main__":
     #     print("Summary generated")
 
     news_data = extract_news_data(rss_feeds)
-    save_to_csv(news_data)
+    csv_filepath = os.path.join(temp_dir, "news_data.csv")
+    save_to_csv(news_data, csv_filepath)
 
-    df = pd.read_csv("news_data.csv")
+    df = pd.read_csv(csv_filepath)
     df.set_index("uuid", inplace=True)
     df.published = pd.to_datetime(df.published)
     today = pd.Timestamp.today()
@@ -101,7 +107,7 @@ if __name__ == "__main__":
         full_text = ""
 
         for topic in articles_grouped_by_topic["topics"]:
-            if topic["topic"].lower() != "others":
+            if topic["topic"].lower() != "others" and topic["topic"] != "其他":
                 articles = topic["articles"]
                 articles_text = generate_article_text(articles, df)
                 articles_links = generate_article_links(articles, df)
@@ -137,14 +143,12 @@ if __name__ == "__main__":
     with open(os.path.join(temp_dir, "05-final_text.json"), "r") as f:
         final_text = json.load(f)
 
-    score = gemini.evaluate_output(BEST_OF_OPTION, final_text)
+    best_score = gemini.evaluate_output(BEST_OF_OPTION, final_text)
 
     with open(os.path.join(temp_dir, "06-score.json"), "w") as f:
-        json.dump(score, f, ensure_ascii=False, indent=4)
-    print("===========SCORE==============")
-    print(score)
-    print("=========BEST SCORE===========")
-    best_score = max(score["scores"], key=lambda x: x["score"])
-    print(f"Summary ID: {best_score['summary_id']}, Best Score: {best_score['score']}")
-    print("==============================")
-    print("Done!")
+        json.dump(best_score, f, ensure_ascii=False, indent=4)
+
+    post_substack_draft(
+        title=f"{datetime.now().strftime('%B %d, %Y')} Hong Kong News Digest",
+        content=final_text[best_score["summary_id"] - 1]["text"],
+    )

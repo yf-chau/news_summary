@@ -196,7 +196,7 @@ def create_draft(page, title, content):
     print("Please manually review and publish the draft via the Substack website.")
 
 
-def post_substack_draft():
+def post_substack_draft(title=TITLE, content=CONTENT):
     if not SUBSTACK_EMAIL or not SUBSTACK_PASSWORD:
         print(
             "Error: SUBSTACK_EMAIL and SUBSTACK_PASSWORD environment variables must be set."
@@ -216,7 +216,7 @@ def post_substack_draft():
                 perform_login(page)
 
             # Steps 3 & 4: Create draft post
-            create_draft(page, TITLE, CONTENT)
+            create_draft(page, title, content)
 
         except PlaywrightTimeoutError as e:
             print(f"\nPlaywright Error: Timed out waiting for an element: {e}")

@@ -1,5 +1,9 @@
 feedparser
 pandas
-python-substack
 tenacity
 google-genai
+python-dotenv
+markdownify
+pydantic
+markdown
+playwright

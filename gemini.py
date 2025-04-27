@@ -75,8 +75,7 @@ def generate_response(
     prompt: str,
     validation_class: Optional[BaseModel] = None,
     lang: str = "tc",
-    # model: str = "gemini-2.0-flash-thinking-exp-01-21",
-    model: str = "gemini-2.5-pro-exp-03-25",
+    model: str = "gemini-2.5-pro-preview-03-25",
     file: Optional[str] = None,
 ) -> str:
     system_prompt = {
@@ -292,4 +291,14 @@ def evaluate_output(best_of: int, output: list) -> dict:
     """
 
     print("Evaluating output...")
-    return generate_response(prompt=prompt, validation_class=ScoreModel)
+
+    score = generate_response(prompt=prompt, validation_class=ScoreModel)
+
+    print("===========SCORE==============")
+    print(score)
+    print("=========BEST SCORE===========")
+    best_score = max(score["scores"], key=lambda x: x["score"])
+    print(f"Summary ID: {best_score['summary_id']}, Best Score: {best_score['score']}")
+    print("==============================")
+
+    return best_score
