@@ -1,7 +1,7 @@
 # Dockerfile
 # ─────────────────────────────────────────────────────────────────────────────
 # Use Playwright’s official Python image (it already has browsers + deps).
-FROM mcr.microsoft.com/playwright/python:latest
+FROM mcr.microsoft.com/playwright/python:v1.51.0-jammy
 # Create and set working dir
 WORKDIR /app
 

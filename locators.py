@@ -13,12 +13,16 @@ PASSWORD_LOGIN_LINK_SELECTOR = (
 )
 
 # Post-Login / Dashboard
-DASHBOARD_INDICATOR_SELECTOR = (
-    "button[data-href*='/publish/home']:has-text('Dashboard')"
-)
+DASHBOARD_INDICATOR_SELECTOR = "button:has-text('Dashboard')"
 NEW_POST_BUTTON_SELECTOR = "button:has-text('New post')"
 NEW_TEXT_POST_BUTTON_SELECTOR = "role=link[name='Text post']"
 
 # Editor Page
 POST_TITLE_INPUT_SELECTOR = "textarea[placeholder='Title']"
 POST_CONTENT_EDITOR_SELECTOR = "div.tiptap.ProseMirror"
+POST_CONTINUE_BUTTON_SELECTOR = (
+    "button[data-testid='publish-button']:has-text('Continue')"
+)
+
+# Publish Page
+SEND_BUTTON_SELECTOR = "button:has-text('Send to everyone now')"

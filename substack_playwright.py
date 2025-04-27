@@ -20,6 +20,8 @@ from locators import (
     NEW_TEXT_POST_BUTTON_SELECTOR,
     POST_TITLE_INPUT_SELECTOR,
     POST_CONTENT_EDITOR_SELECTOR,
+    POST_CONTINUE_BUTTON_SELECTOR,
+    SEND_BUTTON_SELECTOR,
 )
 
 # --- Configuration ---
@@ -43,7 +45,7 @@ For more details, visit [Substack](https://substack.com).
 """
 
 
-def load_cookies(context, cookies_path="substack_cookies.json"):
+def load_cookies(context, cookies_path="substack_cookies_test.json"):
     """Load cookies from a JSON mapping into the given browser context."""
     if not os.path.exists(cookies_path):
         print(f"No cookie file found at {cookies_path}, skipping cookies load.")
@@ -160,14 +162,14 @@ def navigate_to_dashboard(page):
     """Step 1: Navigate to Substack dashboard page."""
     print("Navigating to Dashboard...")
     page.goto(
-        "https://hknewsdigest.substack.com/publish/home",
+        "https://hknewsdigest1.substack.com/publish/home",
         wait_until="domcontentloaded",
     )
 
 
 def is_logged_in(page):
     """Step 2: Check if dashboard indicator is visible."""
-    return page.locator(DASHBOARD_INDICATOR_SELECTOR).is_visible(timeout=15000)
+    return page.locator(NEW_POST_BUTTON_SELECTOR).is_visible(timeout=15000)
 
 
 def create_draft(page, title, content):
@@ -196,6 +198,19 @@ def create_draft(page, title, content):
     print("Please manually review and publish the draft via the Substack website.")
 
 
+def publish_draft(page):
+    print("Clicking 'Continue' button...")
+    continue_button = page.locator(POST_CONTINUE_BUTTON_SELECTOR)
+    expect(continue_button).to_be_visible(timeout=50000)
+    continue_button.click()
+
+    print("Waiting for publish confirmation (Send button)...")
+    send_button = page.locator(SEND_BUTTON_SELECTOR)
+    expect(send_button).to_be_visible(timeout=50000)
+    send_button.click()
+    print("Draft published successfully.")
+
+
 def post_substack_draft(title=TITLE, content=CONTENT):
     if not SUBSTACK_EMAIL or not SUBSTACK_PASSWORD:
         print(
@@ -208,15 +223,11 @@ def post_substack_draft(title=TITLE, content=CONTENT):
         page = init_page(context)
 
         try:
-            # Step 1: Navigate to dashboard
             navigate_to_dashboard(page)
-
-            # Step 2: Login if needed
             if not is_logged_in(page):
                 perform_login(page)
-
-            # Steps 3 & 4: Create draft post
             create_draft(page, title, content)
+            publish_draft(page)
 
         except PlaywrightTimeoutError as e:
             print(f"\nPlaywright Error: Timed out waiting for an element: {e}")
@@ -229,6 +240,7 @@ def post_substack_draft(title=TITLE, content=CONTENT):
             page.screenshot(path="playwright_error_screenshot.png")
             print("Screenshot saved as playwright_error_screenshot.png")
         finally:
+            time.sleep(5)
             print("Closing browser.")
             browser.close()
 

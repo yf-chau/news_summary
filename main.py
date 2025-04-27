@@ -46,7 +46,7 @@ rss_feeds = {
     # https://news.google.com/rss?pz=1&cf=all&hl=zh-HK&gl=HK&ceid=HK:zh-Hant
 }
 
-BEST_OF_OPTION = 3
+BEST_OF_OPTION = 1
 NUMBER_OF_TOPICS = 5
 
 # Main execution
