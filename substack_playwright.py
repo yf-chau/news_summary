@@ -305,6 +305,7 @@ def post_substack_draft(title=TITLE, content=CONTENT):
                 if not logged_in:
                     print("Error: Login failed, cannot access dashboard.")
                     return
+            subtitle = f"本新聞摘要由 {MODEL} 自動生成。"
             create_draft(page, title, content)
             # publish_draft(page)
 
