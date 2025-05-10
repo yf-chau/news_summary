@@ -7,3 +7,4 @@ markdownify
 pydantic
 markdown
 playwright
+playwright-stealth>=1.0.0
