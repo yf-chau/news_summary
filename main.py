@@ -18,7 +18,7 @@ from tenacity import (
     retry_if_exception_type,
 )
 
-from substack_playwright import post_substack_draft
+from substack_api import post_substack_draft
 
 temp_dir = "temp"
 if not os.path.exists(temp_dir):
