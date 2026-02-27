@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Automated Hong Kong news digest generator. Fetches articles from HK news RSS feeds, uses Google Gemini to identify topics, summarize, and sub-edit, then publishes a weekly newsletter draft to Substack via the `python-substack` API.
+Automated Hong Kong news digest generator. Fetches articles from HK news RSS feeds, uses Google Gemini to identify topics, summarize, and sub-edit, then publishes a weekly newsletter to Substack via the `python-substack` API.
 
 The output language is **Traditional Chinese** (繁體中文). All Gemini prompts enforce this.
 
@@ -16,7 +16,7 @@ The pipeline runs in `main.py` and follows this flow:
 4. **Per-Topic Summary** — `gemini.topic_summary()` writes a 250–600 character Chinese summary per topic
 5. **Sub-editing** — `gemini.subedit_summary()` enforces style consistency (titles, dates, character set)
 6. **Best-of-N Evaluation** — `gemini.evaluate_output()` scores multiple runs and picks the best
-7. **Publish** — `substack_api.post_substack_draft()` creates a Substack draft via the `python-substack` REST API
+7. **Publish** — `substack_api.publish_substack_post()` creates a draft, then publishes it and emails subscribers via the `python-substack` REST API
 
 ## Key Files
 
@@ -26,7 +26,7 @@ The pipeline runs in `main.py` and follows this flow:
 | `gemini.py` | Gemini API client, all LLM prompts, retry logic (tenacity) |
 | `utils.py` | RSS parsing, HTML→Markdown, article text/link formatting, JSON extraction |
 | `response_model.py` | Pydantic models for structured Gemini output validation |
-| `substack_api.py` | Substack draft creation via `python-substack` REST API (cookie or email/password auth) |
+| `substack_api.py` | Substack post publishing via `python-substack` REST API (cookie or email/password auth) |
 | `tests/verify_draft.py` | Dev-only Playwright script to verify drafts exist on Substack dashboard |
 | `tests/rss_feed_test.py` | Standalone utility to test RSS feed URL validity |
 | `deepseek_client.py` | Minimal DeepSeek API snippet (unused) |
@@ -48,7 +48,7 @@ Optional:
 - **uv** — package manager (`uv run`, `uv add`, `uv sync`)
 - **Python** — managed via `pyproject.toml` + `uv.lock`
 - **Google Gemini** (`google-genai` SDK) — model: `gemini-2.5-pro-preview-03-25`
-- **python-substack** — Substack REST API client (draft creation, auth)
+- **python-substack** — Substack REST API client (draft creation, publishing, auth)
 - **Playwright** + `playwright-stealth` — dev dependency only, used by `tests/verify_draft.py`
 - **feedparser** — RSS feed parsing
 - **pandas** — article data handling (CSV intermediate storage)
