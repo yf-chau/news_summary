@@ -83,11 +83,20 @@ docker run --env-file .env news-summary
 
 ## Scheduling
 
-The pipeline runs automatically via GitHub Actions every Saturday at 09:00 HKT (01:00 UTC).
+The pipeline runs automatically via GitHub Actions on a **self-hosted runner** (macOS) every Saturday at 09:00 HKT (01:00 UTC). A self-hosted runner is required because Substack's Cloudflare bot protection blocks API requests from GitHub's datacenter IPs.
 
 - **Workflow file:** `.github/workflows/weekly-digest.yml`
+- **Runner:** `self-hosted` (macOS, residential IP)
 - **Trigger:** `cron: "0 1 * * 6"` + manual `workflow_dispatch`
 - **Manual run:** Go to **Actions** tab → **Weekly News Digest** → **Run workflow**
+- **Scheduled wake:** `sudo pmset repeat wakeorpoweron MTWRFSU 08:55:00` ensures the Mac wakes 5 minutes before the job (works with lid closed if power is connected)
+
+### Self-Hosted Runner Setup
+
+1. Go to repo **Settings > Actions > Runners > New self-hosted runner**
+2. Select **macOS / ARM64**, follow the download & config instructions
+3. Install as a persistent service: `./svc.sh install && ./svc.sh start`
+4. The runner auto-starts on login/wake via `launchd`
 
 ### Required GitHub Repository Secrets
 
@@ -97,7 +106,7 @@ The pipeline runs automatically via GitHub Actions every Saturday at 09:00 HKT (
 | `SUBSTACK_EMAIL` | Substack login email |
 | `SUBSTACK_PASSWORD` | Substack login password |
 | `SUBSTACK_URL` | e.g. `https://hknewsdigest.substack.com` |
-| `SUBSTACK_SID` | Full contents of `substack_cookies.json` (the JSON object) |
+| `SUBSTACK_SID` | `substack.sid` cookie value from a browser session |
 
 The workflow uses `uv` directly (via `astral-sh/setup-uv`) instead of Docker. `SUBSTACK_SID` is passed as an env var — the Python code parses it into cookie strings at runtime.
 
