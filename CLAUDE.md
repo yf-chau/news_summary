@@ -101,6 +101,15 @@ The pipeline runs automatically via GitHub Actions every Saturday at 09:00 HKT (
 
 The workflow uses `uv` directly (via `astral-sh/setup-uv`) instead of Docker. `SUBSTACK_SID` is passed as an env var — the Python code parses it into cookie strings at runtime.
 
+## Auth Resilience
+
+The `SUBSTACK_SID` session cookie expires after ~90 days. There is no reliable way to auto-refresh it (Substack deploys CAPTCHA on datacenter IPs).
+
+- **Preflight check** — `main.py` calls `substack_api.verify_auth()` before any Gemini API calls. If auth fails, the pipeline exits immediately with code 2 and a clear error message, avoiding wasted Gemini quota.
+- **`SubstackAuthError`** — Custom exception in `substack_api.py`, raised when both cookie and email/password auth fail.
+- **Mid-week auth check** — `.github/workflows/check-substack-auth.yml` runs every Wednesday (3 days before the Saturday digest) to verify the cookie is still valid. On failure, GitHub sends an email notification and writes to the job summary.
+- **Failure alerts** — Both the digest and auth-check workflows write actionable messages to `$GITHUB_STEP_SUMMARY` on failure. Ensure **Settings > Notifications > Actions** is enabled in the GitHub repo to receive email alerts.
+
 ## Common Pitfalls
 
 - Gemini may return invalid UUIDs when grouping articles; `generate_articles_list_by_topic()` has a retry loop for this

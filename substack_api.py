@@ -13,6 +13,10 @@ dotenv.load_dotenv()
 logger = logging.getLogger(__name__)
 
 
+class SubstackAuthError(Exception):
+    """Raised when all Substack authentication methods fail."""
+
+
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)")
 _BULLET_RE = re.compile(r"^[*\-]\s+(.*)")
 _LINK_RE = re.compile(r"(?<!!)\[([^\]]+)\]\(([^)]+)\)")
@@ -132,7 +136,11 @@ SUBSTACK_SID = os.environ.get("SUBSTACK_SID")
 
 
 def _get_api() -> Api:
-    """Authenticate with Substack, trying cookies first, then email/password."""
+    """Authenticate with Substack, trying cookies first, then email/password.
+
+    Raises:
+        SubstackAuthError: When all authentication methods fail.
+    """
     if SUBSTACK_SID:
         logger.info("Authenticating with cookies from SUBSTACK_SID env var")
         try:
@@ -146,13 +154,34 @@ def _get_api() -> Api:
             logger.warning("Cookie env auth failed (%s), falling back", e)
 
     if not SUBSTACK_EMAIL or not SUBSTACK_PASSWORD:
-        raise ValueError(
+        raise SubstackAuthError(
             "SUBSTACK_EMAIL and SUBSTACK_PASSWORD must be set when cookies are unavailable"
         )
 
     logger.info("Authenticating with email/password")
-    api = Api(email=SUBSTACK_EMAIL, password=SUBSTACK_PASSWORD, publication_url=SUBSTACK_URL)
-    return api
+    try:
+        api = Api(email=SUBSTACK_EMAIL, password=SUBSTACK_PASSWORD, publication_url=SUBSTACK_URL)
+        api.get_user_id()
+        return api
+    except Exception as e:
+        raise SubstackAuthError(f"Email/password auth failed: {e}") from e
+
+
+def verify_auth() -> int:
+    """Verify Substack authentication and return the user ID.
+
+    Raises:
+        SubstackAuthError: When authentication fails.
+    """
+    try:
+        api = _get_api()
+        user_id = api.get_user_id()
+        logger.info("Auth preflight passed (user_id=%s)", user_id)
+        return user_id
+    except SubstackAuthError:
+        raise
+    except Exception as e:
+        raise SubstackAuthError(f"Auth verification failed: {e}") from e
 
 
 @retry(

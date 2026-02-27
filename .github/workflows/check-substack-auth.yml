@@ -1,12 +1,12 @@
-name: Weekly News Digest
+name: Check Substack Auth
 
 on:
   schedule:
-    - cron: "0 1 * * 6"   # Saturday 01:00 UTC = Saturday 09:00 HKT
+    - cron: "0 1 * * 3"   # Wednesday 01:00 UTC = Wednesday 09:00 HKT
   workflow_dispatch:        # Allow manual trigger from GitHub UI
 
 jobs:
-  run-digest:
+  check-auth:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,20 +17,19 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --no-dev
 
-      - name: Run pipeline
+      - name: Verify Substack auth
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           SUBSTACK_EMAIL: ${{ secrets.SUBSTACK_EMAIL }}
           SUBSTACK_PASSWORD: ${{ secrets.SUBSTACK_PASSWORD }}
           SUBSTACK_URL: ${{ secrets.SUBSTACK_URL }}
           SUBSTACK_SID: ${{ secrets.SUBSTACK_SID }}
-        run: uv run --no-dev python main.py
+        run: uv run --no-dev python -c "from substack_api import verify_auth; verify_auth()"
 
       - name: Notify on failure
         if: failure()
         run: |
-          echo "## :x: Weekly News Digest failed" >> "$GITHUB_STEP_SUMMARY"
+          echo "## :warning: Substack auth check failed" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "The pipeline failed. If the exit code was **2**, the SUBSTACK_SID cookie has likely expired." >> "$GITHUB_STEP_SUMMARY"
+          echo "The SUBSTACK_SID cookie has likely expired. The Saturday digest will fail unless the cookie is rotated." >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Action required:** Rotate the \`SUBSTACK_SID\` secret with a fresh cookie from a browser session." >> "$GITHUB_STEP_SUMMARY"
+          echo "**Action required:** Rotate the \`SUBSTACK_SID\` secret with a fresh cookie from a browser session before Saturday." >> "$GITHUB_STEP_SUMMARY"

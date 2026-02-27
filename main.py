@@ -1,5 +1,6 @@
 import json
 import logging
+import sys
 from pathlib import Path
 from datetime import datetime
 
@@ -15,7 +16,7 @@ from utils import (
     extract_news_data,
     save_to_csv,
 )
-from substack_api import post_substack_draft
+from substack_api import post_substack_draft, verify_auth, SubstackAuthError
 
 dotenv.load_dotenv()
 
@@ -29,18 +30,8 @@ RSS_FEEDS: dict[str, str] = {
     "法庭線": "https://thewitnesshk.com/feed/",
     "庭刊": "https://hkcourtnews.com/feed/",
     "獨立媒體": "https://www.inmediahk.net/rss.xml",
-    # "經濟日報": "https://www.hket.com/rss/hongkong",
-    # "山下有人": "https://hillmankind.com/feed/",
-    # "Hong Kong Free Press": "https://www.hongkongfp.com/feed/",
-    # "Yahoo News HK": "https://hk.news.yahoo.com/rss/"
-    # "Yahoo News HK": "https://hk.news.yahoo.com/rss/hong-kong/",
-    # "Yahoo News HK": "https://hk.news.yahoo.com/rss/business/"
-    # https://hk.news.yahoo.com/rss/world/
-    # https://hk.news.yahoo.com/rss/entertainment/
-    # https://hk.news.yahoo.com/rss/sports/
-    # https://hk.news.yahoo.com/tech/rss.xml
-    # https://news.mingpao.com/rss/pns/s00002.xml
-    # https://news.google.com/rss?pz=1&cf=all&hl=zh-HK&gl=HK&ceid=HK:zh-Hant
+    "Yahoo 港聞": "https://hk.news.yahoo.com/rss/hong-kong/",
+    "Yahoo 財經": "https://hk.news.yahoo.com/rss/business/",
 }
 
 BEST_OF_OPTION = 1
@@ -62,7 +53,7 @@ def load_articles(rss_feeds: dict[str, str]) -> pd.DataFrame:
 
     df = pd.read_csv(csv_filepath)
     df.set_index("uuid", inplace=True)
-    df.published = pd.to_datetime(df.published)
+    df.published = pd.to_datetime(df.published, utc=True)
     today = pd.Timestamp.today()
     week_ago = pd.Timestamp(today - pd.Timedelta(days=7)).tz_localize("UTC")
     return df[df.published > week_ago]
@@ -72,7 +63,7 @@ def generate_digest(df: pd.DataFrame, n_topics: int) -> tuple[str, str]:
     """Run topic generation -> summary -> subedit pipeline, return markdown."""
     topics = gemini.generate_topics(df[["headline", "summary"]], n_topics)
     articles_grouped_by_topic = gemini.generate_articles_list_by_topic(
-        topics, df[["headline"]]
+        topics, df[["headline", "summary"]]
     )
 
     _save_json(TEMP_DIR / "01-topics.json", topics)
@@ -105,6 +96,17 @@ def generate_digest(df: pd.DataFrame, n_topics: int) -> tuple[str, str]:
 def run_pipeline() -> None:
     """Main entry point: load articles, generate digest, publish."""
     logging.basicConfig(level=logging.INFO)
+
+    try:
+        verify_auth()
+    except SubstackAuthError as e:
+        logger.error("Substack auth preflight failed: %s", e)
+        print(
+            "ERROR: Substack authentication failed — SUBSTACK_SID cookie likely expired. "
+            "Please rotate.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
     df = load_articles(RSS_FEEDS)
 
