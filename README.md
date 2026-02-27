@@ -33,7 +33,34 @@
 
 # HK Weekly News Digest
 
-Automated Hong Kong news digest generator. Fetches articles from HK news RSS feeds, uses Google Gemini to identify topics, summarize, and sub-edit, then publishes a weekly newsletter to Substack.
+An AI-powered weekly Hong Kong news digest, published every Saturday on Substack.
+
+## Background
+
+Since leaving Hong Kong, keeping up with the news back home has been difficult amid the demands of life abroad. Hong Kong is in something of a media winter — several independent outlets are doing important reporting, but synthesising coverage across multiple sources into a coherent picture is no easy task.
+
+Before becoming a data scientist I worked in news and public relations, where writing news digests for senior officials was part of the daily routine. With the rapid advances in AI, this side project tries to hand that same editorial workflow to a large language model (LLM). The results have been decent enough to share publicly.
+
+## News Sources
+
+The digest draws from the following outlets:
+
+- [The Collective HK (集誌社)](https://thecollectivehk.com/)
+- [The Witness (法庭線)](https://thewitnesshk.com/)
+- [HK Court News (庭刊)](https://hkcourtnews.com/)
+- [InMedia (獨立媒體)](https://www.inmediahk.net/)
+- [Yahoo HK News (Yahoo 港聞)](https://hk.news.yahoo.com/hong-kong/)
+- [Yahoo HK Finance (Yahoo 財經)](https://hk.news.yahoo.com/business/)
+
+## How It Works
+
+Every Saturday morning the system fetches the past week's articles from the sources above, uses Google Gemini to analyse hundreds of articles, identify the top five topics, and write concise summaries in Traditional Chinese. The finished digest is then automatically published to Substack.
+
+## Subscribe
+
+Free — delivered to your inbox every Saturday:
+
+**[https://hknewsdigest.substack.com](https://hknewsdigest.substack.com)**
 
 ## Architecture
 
