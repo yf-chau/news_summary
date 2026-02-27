@@ -1,0 +1,34 @@
+name: Daily Article Fetch
+
+on:
+  schedule:
+    - cron: "0 1 * * 0-5"   # Sun–Fri 01:00 UTC = 09:00 HKT (skip Saturday)
+  workflow_dispatch:          # Allow manual trigger
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync --frozen --no-dev
+
+      - name: Restore cached articles
+        uses: actions/cache/restore@v4
+        with:
+          path: data/articles.jsonl
+          key: articles-${{ github.run_id }}
+          restore-keys: articles-
+
+      - name: Fetch articles
+        run: uv run --no-dev python fetch_articles.py
+
+      - name: Save cached articles
+        uses: actions/cache/save@v4
+        with:
+          path: data/articles.jsonl
+          key: articles-${{ github.run_id }}

@@ -23,6 +23,8 @@ dotenv.load_dotenv()
 logger = logging.getLogger(__name__)
 
 TEMP_DIR = Path("temp")
+DATA_DIR = Path("data")
+ARTICLES_PATH = DATA_DIR / "articles.jsonl"
 
 # List of RSS feed URLs
 RSS_FEEDS: dict[str, str] = {
@@ -44,19 +46,37 @@ def _save_json(path: Path, data: object) -> None:
 
 
 def load_articles(rss_feeds: dict[str, str]) -> pd.DataFrame:
-    """Fetch RSS, save CSV, filter to last 7 days."""
+    """Load articles from accumulated JSONL, falling back to fresh RSS fetch."""
     TEMP_DIR.mkdir(exist_ok=True)
 
-    news_data = extract_news_data(rss_feeds)
-    csv_filepath = TEMP_DIR / "news_data.csv"
-    save_to_csv(news_data, str(csv_filepath))
+    if ARTICLES_PATH.exists():
+        logger.info("Reading accumulated articles from %s", ARTICLES_PATH)
+        df = pd.read_json(ARTICLES_PATH, lines=True)
+    else:
+        logger.info("No JSONL found, fetching fresh from RSS")
+        news_data = extract_news_data(rss_feeds)
+        df = pd.DataFrame(news_data)
+        # Write JSONL for future use
+        DATA_DIR.mkdir(exist_ok=True)
+        with open(ARTICLES_PATH, "w", encoding="utf-8") as f:
+            for item in news_data:
+                f.write(json.dumps(item, ensure_ascii=False) + "\n")
 
-    df = pd.read_csv(csv_filepath)
+    # Save CSV for debugging
+    csv_filepath = TEMP_DIR / "news_data.csv"
+    df.to_csv(csv_filepath, index=False)
+
     df.set_index("uuid", inplace=True)
     df.published = pd.to_datetime(df.published, utc=True)
     today = pd.Timestamp.today()
     week_ago = pd.Timestamp(today - pd.Timedelta(days=7)).tz_localize("UTC")
-    return df[df.published > week_ago]
+    df = df[df.published > week_ago]
+
+    # Drop fetched_at if present — downstream doesn't need it
+    if "fetched_at" in df.columns:
+        df = df.drop(columns=["fetched_at"])
+
+    return df
 
 
 def generate_digest(df: pd.DataFrame, n_topics: int) -> tuple[str, str]:

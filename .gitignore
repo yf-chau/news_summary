@@ -8,6 +8,7 @@ __pycache__/
 
 .env
 news_data.csv
+/data
 
 # Debugging screenshots
 *.png

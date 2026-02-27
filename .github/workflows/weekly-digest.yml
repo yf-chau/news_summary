@@ -17,6 +17,22 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --no-dev
 
+      - name: Restore cached articles
+        uses: actions/cache/restore@v4
+        with:
+          path: data/articles.jsonl
+          key: articles-${{ github.run_id }}
+          restore-keys: articles-
+
+      - name: Fetch today's articles
+        run: uv run --no-dev python fetch_articles.py
+
+      - name: Save cached articles
+        uses: actions/cache/save@v4
+        with:
+          path: data/articles.jsonl
+          key: articles-${{ github.run_id }}
+
       - name: Run pipeline
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
