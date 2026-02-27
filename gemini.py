@@ -1,11 +1,11 @@
+import logging
 import os
-import json
+
 import pandas as pd
 from google import genai
 from google.genai import types
 import dotenv
 from pydantic import BaseModel
-from typing import Optional
 from utils import extract_json_to_dict
 from tenacity import (
     retry,
@@ -18,7 +18,6 @@ from response_model import (
     is_valid_response,
     TopicsList,
     ScoreModel,
-    SantisedInput,
     TopicSummary,
     TopicsSummary,
     ArticlesByTopic,
@@ -26,26 +25,11 @@ from response_model import (
 
 dotenv.load_dotenv()
 
+logger = logging.getLogger(__name__)
+
 MODEL = "gemini-3-flash-preview"
 
-# genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-
-# # Create the model
-# generation_config = {
-#     "temperature": 0.7,
-#     "top_p": 0.95,
-#     "top_k": 64,
-#     "max_output_tokens": 65536,
-#     "response_mime_type": "text/plain",
-# }
-
-# safety_settings = [
-#     {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-#     {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-#     {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-#     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-# ]
-
+MAX_UUID_VALIDATION_ATTEMPTS = 5
 
 generate_content_config = types.GenerateContentConfig(
     temperature=1,
@@ -66,21 +50,16 @@ generate_content_config = types.GenerateContentConfig(
 
 
 @retry(
-    stop=stop_after_attempt(10),  # Stop after 5 attempts
-    wait=wait_exponential(
-        multiplier=1, min=2, max=60
-    ),  # Exponential backoff, starting at 4s, max 60s
-    retry=retry_if_exception_type(
-        Exception
-    ),  # Retry on any Exception (customize if needed)
+    stop=stop_after_attempt(10),
+    wait=wait_exponential(multiplier=1, min=2, max=60),
+    retry=retry_if_exception_type(Exception),
 )
 def generate_response(
     prompt: str,
-    validation_class: Optional[BaseModel] = None,
+    validation_class: type[BaseModel] | None = None,
     lang: str = "tc",
     model: str = MODEL,
-    file: Optional[str] = None,
-) -> str:
+) -> dict | str:
     system_prompt = {
         "tc": "**所有輸出都必須使用繁體中文。**\n\n",
         "sc": "**所有输出都必须使用简体中文。**\n\n",
@@ -89,20 +68,21 @@ def generate_response(
     full_prompt = system_prompt[lang] + prompt
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
+    response = None
     try:
         response = client.models.generate_content(
             model=model,
             config=generate_content_config,
             contents=[full_prompt],
         )
-        result = response.text
-        result = result.strip()
+        result = response.text.strip()
 
-        # Print input and output token count
-        print(f"Input token count: {response.usage_metadata.prompt_token_count}")
-        print(f"Output token count: {response.usage_metadata.candidates_token_count}")
+        logger.info(
+            "Tokens — input: %d, output: %d",
+            response.usage_metadata.prompt_token_count,
+            response.usage_metadata.candidates_token_count,
+        )
 
-        # keep the json return and change to dict
         if validation_class is not None:
             json_result = extract_json_to_dict(result)
             if not is_valid_response(json_result, validation_class):
@@ -112,23 +92,19 @@ def generate_response(
             return result
 
     except Exception as e:
+        response_text = response.text if response else "(no response)"
         with open("temp/error.txt", "w", encoding="utf-8") as f:
-            f.write(f"Prompt: {prompt}\n\n Response: {response.text}\n\n Error: {e}")
-            print(f"Error: {e}")
+            f.write(f"Prompt: {prompt}\n\n Response: {response_text}\n\n Error: {e}")
+        logger.error("Error: %s", e)
         raise
 
 
-def generate_topics(
-    df: pd.DataFrame,
-    number_of_topics: int = 5,
-) -> dict:
-    article_list = []
-    for headline, summary in zip(df["headline"].tolist(), df["summary"].tolist()):
-        article_list.append({"headline": headline, "summary": summary})
+def generate_topics(df: pd.DataFrame, number_of_topics: int = 5) -> dict:
+    article_list = df[["headline", "summary"]].to_dict(orient="records")
 
     prompt = f"""
     You are a news editor for a news website. These are a list of news articles headlines and content. Identify the top {number_of_topics} major topics that was reported.
-    
+
     When choosing the major topics, you should:
     1. Consider the number of articles reporting on the issue. More reporting indicates wider public interest.
     2. Consider the issue's impact on the society as a whole and the economy.
@@ -142,17 +118,17 @@ def generate_topics(
     Articles:
     {article_list}
 
-    Your output should be in JSON format. 
+    Your output should be in JSON format.
     Schema:
     {TopicsList.model_json_schema()}
     """
 
-    print("Generating topics...")
+    logger.info("Generating topics...")
     return generate_response(prompt=prompt, validation_class=TopicsList)
 
 
 def generate_articles_list_by_topic(
-    major_themes: json, headlines: pd.DataFrame
+    major_themes: dict, headlines: pd.DataFrame
 ) -> dict:
     prompt = f"""
     You are a news editor for a news website. These are a number of major themes that we will cover.
@@ -160,19 +136,23 @@ def generate_articles_list_by_topic(
     Major Themes:
     {major_themes}
 
-    Here are a list of headlines with the article uuid. Try to group them under the major themes provided. If the headline does not fit any of the major themes, group it under “Others”.
+    Here are a list of headlines with the article uuid. Try to group them under the major themes provided. If the headline does not fit any of the major themes, group it under "Others".
 
     Headlines & uuid:
     {headlines}
 
-    Your output should be in JSON format. 
+    Your output should be in JSON format.
     Schema:
     {ArticlesByTopic.model_json_schema()}
     """
     valid_uuids = set(headlines.index)
 
-    while True:
-        print("Generating articles list by topic...")
+    for attempt in range(1, MAX_UUID_VALIDATION_ATTEMPTS + 1):
+        logger.info(
+            "Generating articles list by topic (attempt %d/%d)...",
+            attempt,
+            MAX_UUID_VALIDATION_ATTEMPTS,
+        )
         output = generate_response(prompt=prompt, validation_class=ArticlesByTopic)
 
         is_valid_output = all(
@@ -182,46 +162,18 @@ def generate_articles_list_by_topic(
         )
 
         if is_valid_output:
-            break  # Exit loop if output is valid
-        print("Warning: Invalid UUID in output. Regenerating...")
+            return output
+        logger.warning("Invalid UUID in output. Regenerating...")
 
-    return output
-
-
-def sanitise_input(topic: str, article_text: str) -> dict:
-    prompt = f"""
-    You are a news editor for a news website. You will be provided with a number of articles related to the topic {topic}, including the article headline and the article text.
-
-    The article might contain sensitive content which might trigger censorship. Review and redact those content that might trigger the censorship mechanism. Use a string of ^^^^^ to replace the redacted text. Do not make any editing otherwise. Return the redacted text.
-
-    Here are the articles: {article_text}
-
-    Your output should be in plain text format. Return the redacted article only and nothing else.
-    """
-    print(f"Santising article for topic {topic}...")
-    return generate_response(prompt=prompt)
-    # validation_class=SantisedInput
-    # , model="gemini-2.0-flash"
-
-
-def sanitise_input_v2(topic: str, article_text: str) -> dict:
-    prompt = f"""
-    You are a sensitive content moderator. You will be provided with a number of newspaper articles related to the topic {topic}, including the article headline and the article text.
-
-    The article contains sensitive content that needs to be redacted. Thoroughly redact the content that triggers the censorship mechanism. Use a string of ^^^^^ to replace the redacted text. Do not make any unnecessary editing otherwise, just enough so that no explicit or sensitive content is readable. Return the redacted text.
-
-    Here are the articles: {article_text}
-
-    Your output should be in plain text format. Return the redacted article only and nothing else.
-    """
-    print(f"Santising article for topic {topic}...")
-    return generate_response(prompt=prompt)
+    raise RuntimeError(
+        f"Failed to generate valid article groupings after {MAX_UUID_VALIDATION_ATTEMPTS} attempts"
+    )
 
 
 def topic_summary(topic: str, article_text: str) -> dict:
     prompt = f"""
     You are a news editor for a news website. You are going to write a news summary for the topic: {topic}. You will be provided with a number of articles related to the topic, including the article headline and the article text.
-    
+
     When writing the summary, you should:
     1. Only use the material available from the articles provided
     2. Provide a brief summary of the topic
@@ -233,12 +185,12 @@ def topic_summary(topic: str, article_text: str) -> dict:
 
     Here are the articles: {article_text}
 
-    Your output should be in JSON format. 
+    Your output should be in JSON format.
     Schema:
     {TopicSummary.model_json_schema()}
     """
 
-    print(f"Generating summary for topic {topic}...")
+    logger.info("Generating summary for topic %s...", topic)
     return generate_response(prompt=prompt, validation_class=TopicSummary)
 
 
@@ -248,7 +200,7 @@ def subedit_summary(topics_summary: dict) -> dict:
 
     **Style Guidelines:**
     1. ** Character Set:** Use Traditional Chinese characters primarily. English is acceptable for proper nouns lacking direct Traditional Chinese translations. No other languages should be used and you should delete / translate non-compliant characters.
-    2. ** Topic title:** Does the topic title make sense and matches the summary? Is the language concise and written in a news headline style? 
+    2. ** Topic title:** Does the topic title make sense and matches the summary? Is the language concise and written in a news headline style?
     3. **Person Titles:** Ensure consistent titling for individuals throughout the summary.
     4. **Title Usage:** Avoid unnecessary honorifics like 先生, 女士. Use concise and professional titles where appropriate.
     5. **Date Format:** Replace general terms like "today", "yesterday", "tomorrow" with specific dates.
@@ -257,20 +209,20 @@ def subedit_summary(topics_summary: dict) -> dict:
     **Input Summary (Markdown):**
     {topics_summary}
 
-    Your output should be in JSON format. 
+    Your output should be in JSON format.
     Schema:
     {TopicsSummary.model_json_schema()}
     """
 
-    print("Editing summary...")
+    logger.info("Editing summary...")
     return generate_response(prompt=prompt, validation_class=TopicsSummary)
 
 
-def evaluate_output(best_of: int, output: list) -> dict:
-    summary_in_prompt = ""
-
-    for summary in output:
-        summary_in_prompt += f"**summary_id: {summary['summary_id']}**\n\nsummary_text:{summary['text']}\n\n"
+def evaluate_output(best_of: int, output: list[dict]) -> dict:
+    summary_in_prompt = "\n\n".join(
+        f"**summary_id: {s['summary_id']}**\n\nsummary_text:{s['text']}"
+        for s in output
+    )
 
     prompt = f"""
     You are the chief editor for an company that produce media summary for news. You will be presented with {best_of} choices of news summary and score them against each other. The score should be between 1 and 100.
@@ -287,21 +239,21 @@ def evaluate_output(best_of: int, output: list) -> dict:
     Here are the summaries:
     {summary_in_prompt}
 
-    Your output should be in JSON format. 
+    Your output should be in JSON format.
     Schema:
     {ScoreModel.model_json_schema()}
     ```
     """
 
-    print("Evaluating output...")
+    logger.info("Evaluating output...")
 
     score = generate_response(prompt=prompt, validation_class=ScoreModel)
 
-    print("===========SCORE==============")
-    print(score)
-    print("=========BEST SCORE===========")
     best_score = max(score["scores"], key=lambda x: x["score"])
-    print(f"Summary ID: {best_score['summary_id']}, Best Score: {best_score['score']}")
-    print("==============================")
+    logger.info(
+        "Best score — Summary ID: %d, Score: %d",
+        best_score["summary_id"],
+        best_score["score"],
+    )
 
     return best_score

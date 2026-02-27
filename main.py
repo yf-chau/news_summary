@@ -1,10 +1,13 @@
-import os
 import json
+import logging
+from pathlib import Path
+from datetime import datetime
+
 import dotenv
 import pandas as pd
+
 import gemini
 from gemini import MODEL
-from datetime import datetime
 from utils import (
     generate_article_text,
     generate_article_links,
@@ -12,23 +15,16 @@ from utils import (
     extract_news_data,
     save_to_csv,
 )
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential,
-    retry_if_exception_type,
-)
-
 from substack_api import post_substack_draft
-
-temp_dir = "temp"
-if not os.path.exists(temp_dir):
-    os.makedirs(temp_dir)
 
 dotenv.load_dotenv()
 
+logger = logging.getLogger(__name__)
+
+TEMP_DIR = Path("temp")
+
 # List of RSS feed URLs
-rss_feeds = {
+RSS_FEEDS: dict[str, str] = {
     "集誌社": "https://thecollectivehk.com/feed/",
     "法庭線": "https://thewitnesshk.com/feed/",
     "庭刊": "https://hkcourtnews.com/feed/",
@@ -50,108 +46,91 @@ rss_feeds = {
 BEST_OF_OPTION = 1
 NUMBER_OF_TOPICS = 5
 
-# Main execution
-if __name__ == "__main__":
-    # @retry(
-    #     stop=stop_after_attempt(5),  # Stop after 5 attempts
-    #     wait=wait_exponential(
-    #         multiplier=1, min=2, max=60
-    #     ),  # Exponential backoff, starting at 4s, max 60s
-    #     retry=retry_if_exception_type(
-    #         Exception
-    #     ),  # Retry on any Exception (customize if needed)
-    # )
-    # def generate_summary(topic, articles):
-    #     sanitised_input = gemini.sanitise_input_v2(topic, articles)
 
-    #     with open(
-    #         os.path.join(temp_dir, "sanitised_input.json"), "w", encoding="utf-8"
-    #     ) as f:
-    #         json.dump(sanitised_input, f, ensure_ascii=False, indent=4)
+def _save_json(path: Path, data: object) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
-    #     print("Trying to generate summary....")
-    #     summary = gemini.topic_summary(topic, sanitised_input)
-    #     with open(
-    #         os.path.join(temp_dir, "sanitised_summary.json"), "w", encoding="utf-8"
-    #     ) as f:
-    #         json.dump(summary, f, ensure_ascii=False, indent=4)
-    #     print("Summary generated")
+
+def load_articles(rss_feeds: dict[str, str]) -> pd.DataFrame:
+    """Fetch RSS, save CSV, filter to last 7 days."""
+    TEMP_DIR.mkdir(exist_ok=True)
 
     news_data = extract_news_data(rss_feeds)
-    csv_filepath = os.path.join(temp_dir, "news_data.csv")
-    save_to_csv(news_data, csv_filepath)
+    csv_filepath = TEMP_DIR / "news_data.csv"
+    save_to_csv(news_data, str(csv_filepath))
 
     df = pd.read_csv(csv_filepath)
     df.set_index("uuid", inplace=True)
     df.published = pd.to_datetime(df.published)
     today = pd.Timestamp.today()
     week_ago = pd.Timestamp(today - pd.Timedelta(days=7)).tz_localize("UTC")
-    df = df[df.published > week_ago]
+    return df[df.published > week_ago]
 
-    final_text = []
+
+def generate_digest(df: pd.DataFrame, n_topics: int) -> tuple[str, str]:
+    """Run topic generation -> summary -> subedit pipeline, return markdown."""
+    topics = gemini.generate_topics(df[["headline", "summary"]], n_topics)
+    articles_grouped_by_topic = gemini.generate_articles_list_by_topic(
+        topics, df[["headline"]]
+    )
+
+    _save_json(TEMP_DIR / "01-topics.json", topics)
+    _save_json(TEMP_DIR / "02-articles_by_topic.json", articles_grouped_by_topic)
+
+    topics_summary: dict[str, list] = {"topics": []}
+    topics_link: list[dict] = []
+
+    for topic in articles_grouped_by_topic["topics"]:
+        if topic["topic"].lower() != "others" and topic["topic"] != "其他":
+            articles = topic["articles"]
+            articles_text = generate_article_text(articles, df)
+            articles_links = generate_article_links(articles, df)
+            topics_summary["topics"].append(
+                gemini.topic_summary(topic["topic"], articles_text)
+            )
+            topics_link.append({"topic": topic, "link": articles_links})
+
+    formatted_summary = gemini.subedit_summary(topics_summary)
+
+    _save_json(TEMP_DIR / "03-topics_summary.json", formatted_summary)
+    _save_json(TEMP_DIR / "04-topics_link.json", topics_link)
+
+    pre_edited_text = append_summary_and_links(topics_summary, topics_link)
+    edited_text = append_summary_and_links(formatted_summary, topics_link)
+
+    return edited_text, pre_edited_text
+
+
+def run_pipeline() -> None:
+    """Main entry point: load articles, generate digest, publish."""
+    logging.basicConfig(level=logging.INFO)
+
+    df = load_articles(RSS_FEEDS)
+
+    digest_candidates: list[dict] = []
 
     for i in range(1, BEST_OF_OPTION + 1):
-        print(f"Generating try {i} of {BEST_OF_OPTION}")
+        logger.info("Generating try %d of %d", i, BEST_OF_OPTION)
 
-        topics = gemini.generate_topics(df[["headline", "summary"]], NUMBER_OF_TOPICS)
-        articles_grouped_by_topic = gemini.generate_articles_list_by_topic(
-            topics, df[["headline"]]
-        )
+        edited_text, pre_edited_text = generate_digest(df, NUMBER_OF_TOPICS)
+        digest_candidates.append({"summary_id": i, "text": edited_text})
 
-        with open(os.path.join(temp_dir, "01-topics.json"), "w") as f:
-            json.dump(topics, f, ensure_ascii=False, indent=4)
-        with open(os.path.join(temp_dir, "02-articles_by_topic.json"), "w") as f:
-            json.dump(articles_grouped_by_topic, f, ensure_ascii=False, indent=4)
+        (TEMP_DIR / f"summary-{i}_pre_edited.md").write_text(pre_edited_text)
+        (TEMP_DIR / f"summary-{i}_edited.md").write_text(edited_text)
 
-        topics_summary = {"topics": []}
-        topics_link = []
-        full_text = ""
+    _save_json(TEMP_DIR / "05-final_text.json", digest_candidates)
 
-        for topic in articles_grouped_by_topic["topics"]:
-            if topic["topic"].lower() != "others" and topic["topic"] != "其他":
-                articles = topic["articles"]
-                articles_text = generate_article_text(articles, df)
-                articles_links = generate_article_links(articles, df)
-                # sanitised_input = gemini.sanitise_input(topic["topic"], articles_text)
-                topics_summary["topics"].append(
-                    gemini.topic_summary(topic["topic"], articles_text)
-                )
-                topics_link.append({"topic": topic, "link": articles_links})
-
-        formatted_summary = gemini.subedit_summary(topics_summary)
-
-        with open(os.path.join(temp_dir, "03-topics_summary.json"), "w") as f:
-            json.dump(formatted_summary, f, ensure_ascii=False, indent=4)
-        with open(os.path.join(temp_dir, "04-topics_link.json"), "w") as f:
-            json.dump(topics_link, f, ensure_ascii=False, indent=4)
-
-        # Pre edited version
-        pre_edited_text = append_summary_and_links(topics_summary, topics_link)
-        # Post edited version
-        edited_text = append_summary_and_links(formatted_summary, topics_link)
-
-        final_text.append({"summary_id": i, "text": edited_text})
-
-        with open(os.path.join(temp_dir, f"summary-{i}_pre_edited.md"), "w") as f:
-            f.write(pre_edited_text)
-
-        with open(os.path.join(temp_dir, f"summary-{i}_edited.md"), "w") as f:
-            f.write(edited_text)
-
-    with open(os.path.join(temp_dir, "05-final_text.json"), "w") as f:
-        json.dump(final_text, f, ensure_ascii=False, indent=4)
-
-    with open(os.path.join(temp_dir, "05-final_text.json"), "r") as f:
-        final_text = json.load(f)
-
-    best_score = gemini.evaluate_output(BEST_OF_OPTION, final_text)
-
-    with open(os.path.join(temp_dir, "06-score.json"), "w") as f:
-        json.dump(best_score, f, ensure_ascii=False, indent=4)
+    best_score = gemini.evaluate_output(BEST_OF_OPTION, digest_candidates)
+    _save_json(TEMP_DIR / "06-score.json", best_score)
 
     now = datetime.now()
     post_substack_draft(
         title=f"{now.year}年{now.month}月{now.day}日 香港每週新聞摘要",
         subtitle=f"本新聞摘要由 {MODEL} 自動生成。",
-        content=final_text[best_score["summary_id"] - 1]["text"],
+        content=digest_candidates[best_score["summary_id"] - 1]["text"],
     )
+
+
+if __name__ == "__main__":
+    run_pipeline()

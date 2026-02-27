@@ -1,33 +1,23 @@
 import json
-import markdownify
+import logging
 import re
 from uuid import uuid4
+
 import feedparser
+import markdownify
 import pandas as pd
 
+logger = logging.getLogger(__name__)
 
-def extract_news_data(rss_feeds):
+
+def extract_news_data(rss_feeds: dict[str, str]) -> list[dict]:
     news_items = []
     for feed_title, feed_url in rss_feeds.items():
-        print(f"Extracting news data from {feed_title}...")
+        logger.info("Extracting news data from %s...", feed_title)
 
         feed = feedparser.parse(feed_url)
 
         for entry in feed.entries:
-            # print("====================================")
-            # print("Summary")
-            # print("===============================")
-            # print(entry.get("summary"))
-
-            # print("====================================")
-            # print("Marked down summary")
-            # print("===============================")
-            # print(html_to_markdown(entry.get("summary", "")))
-
-            # print("====================================")
-            # print("Content")
-            # print("===============================")
-            # print(html_to_markdown(entry.get("content", [{}])[0].get("value")))
             news_item = {
                 "uuid": uuid4().hex,
                 "headline": entry.get("title"),
@@ -39,11 +29,7 @@ def extract_news_data(rss_feeds):
                     )
                 ),
                 "url": entry.get("link"),
-                "image_links": None,
                 "source": feed.feed.get("title"),
-                "categories": ", ".join(
-                    tag["term"] for tag in entry.get("tags", []) if "term" in tag
-                ),
             }
 
             news_items.append(news_item)
@@ -51,13 +37,12 @@ def extract_news_data(rss_feeds):
     return news_items
 
 
-# Function to save news data to a CSV file
-def save_to_csv(news_items, filename="news_data.csv"):
+def save_to_csv(news_items: list[dict], filename: str = "news_data.csv") -> None:
     df = pd.DataFrame(news_items)
     df.to_csv(filename, index=False)
 
 
-def html_to_markdown(html_content):
+def html_to_markdown(html_content: str) -> str:
     if not html_content:
         return ""
 
@@ -73,56 +58,39 @@ def html_to_markdown(html_content):
     return markdown_text
 
 
-def generate_article_text(articles, df) -> str:
-    article_text = ""
+def generate_article_text(articles: list[dict], df: pd.DataFrame) -> str:
+    parts = []
     for article in articles:
-        article_headline = df.loc[article["uuid"]]["headline"]
-        article_content = df.loc[article["uuid"]]["content"]
-        article_text += f"{article_headline}\n{article_content}\n\n"
-    return article_text
+        row = df.loc[article["uuid"]]
+        parts.append(f"{row['headline']}\n{row['content']}")
+    return "\n\n".join(parts)
 
 
-def generate_article_links(articles, df) -> str:
-    article_hyperlink_in_markdown = ""
+def generate_article_links(articles: list[dict], df: pd.DataFrame) -> str:
+    lines = []
     for article in articles:
-        article_headline = df.loc[article["uuid"]]["headline"]
-        article_link = df.loc[article["uuid"]]["url"]
-        article_source = df.loc[article["uuid"]]["source"]
-        article_hyperlink_in_markdown += (
-            f"* [{article_source}：{article_headline}]({article_link})\n"
+        row = df.loc[article["uuid"]]
+        lines.append(f"* [{row['source']}：{row['headline']}]({row['url']})")
+    return "\n".join(lines)
+
+
+def append_summary_and_links(formatted_summary: dict, topics_link: list[dict]) -> str:
+    sections = []
+    for summary, link in zip(formatted_summary["topics"], topics_link):
+        sections.append(
+            f"## {summary['topic']}\n\n"
+            f"{summary['summary']}\n\n"
+            f"#### Links\n\n"
+            f"{link['link']}"
         )
-    return article_hyperlink_in_markdown
-
-
-def append_summary_and_links(formatted_summary: dict, topics_link: list) -> str:
-    full_text = ""
-    formatted_summary_list = formatted_summary["topics"]
-    for summary, link in zip(formatted_summary_list, topics_link):
-        full_text += "## " + summary["topic"] + "\n\n"
-        full_text += summary["summary"]
-        full_text += "\n\n"
-        full_text += "#### Links\n\n"
-        full_text += link["link"]
-        full_text += "\n\n"
-
-    return full_text
+    return "\n\n".join(sections)
 
 
 def extract_json_to_dict(text: str) -> dict | None:
-    """
-    Extracts the JSON string from a markdown code block using string methods.
-
-    Args:
-        text (str): The input string containing a markdown code block.
-
-    Returns:
-        str or None: The raw JSON string if found; otherwise, None.
-    """
-    # Split the text at the starting marker "```json"
+    """Extract a JSON object from a markdown ```json code block."""
     _, marker, after = text.partition("```json")
     if not marker:
-        return None  # starting marker not found
+        return None
 
-    # Now split the remainder at the closing marker "```"
     json_content, _, _ = after.partition("```")
     return json.loads(json_content.strip())

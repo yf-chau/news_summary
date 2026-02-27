@@ -19,10 +19,7 @@ from playwright_stealth import Stealth
 
 dotenv.load_dotenv()
 
-COOKIE_PATH = os.getenv("COOKIE_PATH", "substack_cookies.json")
-SUBSTACK_EMAIL = os.environ.get("SUBSTACK_EMAIL")
-SUBSTACK_PASSWORD = os.environ.get("SUBSTACK_PASSWORD")
-SUBSTACK_URL = os.environ.get("SUBSTACK_URL")
+from substack_api import COOKIE_PATH, SUBSTACK_EMAIL, SUBSTACK_PASSWORD, SUBSTACK_URL
 
 
 def load_cookies(context):
