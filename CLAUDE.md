@@ -27,8 +27,8 @@ The pipeline runs in `main.py` and follows this flow:
 | `utils.py` | RSS parsing, HTML→Markdown, article text/link formatting, JSON extraction |
 | `response_model.py` | Pydantic models for structured Gemini output validation |
 | `substack_api.py` | Substack draft creation via `python-substack` REST API (cookie or email/password auth) |
-| `verify_draft.py` | Dev-only Playwright script to verify drafts exist on Substack dashboard |
-| `rss_feed_test.py` | Standalone utility to test RSS feed URL validity |
+| `tests/verify_draft.py` | Dev-only Playwright script to verify drafts exist on Substack dashboard |
+| `tests/rss_feed_test.py` | Standalone utility to test RSS feed URL validity |
 | `deepseek_client.py` | Minimal DeepSeek API snippet (unused) |
 
 ## Environment Variables
@@ -49,7 +49,7 @@ Optional:
 - **Python** — managed via `pyproject.toml` + `uv.lock`
 - **Google Gemini** (`google-genai` SDK) — model: `gemini-2.5-pro-preview-03-25`
 - **python-substack** — Substack REST API client (draft creation, auth)
-- **Playwright** + `playwright-stealth` — dev dependency only, used by `verify_draft.py`
+- **Playwright** + `playwright-stealth` — dev dependency only, used by `tests/verify_draft.py`
 - **feedparser** — RSS feed parsing
 - **pandas** — article data handling (CSV intermediate storage)
 - **Pydantic** — structured LLM response validation
@@ -74,7 +74,7 @@ uv sync
 uv run python main.py
 
 # Run draft verification (dev only, requires Playwright)
-uv run --dev python verify_draft.py --title "February 25, 2026 香港每週新聞摘要"
+uv run --dev python tests/verify_draft.py --title "February 25, 2026 香港每週新聞摘要"
 
 # Run via Docker
 docker build -t news-summary .
@@ -87,4 +87,4 @@ docker run --env-file .env news-summary
 - Safety settings are set to OFF for all Gemini categories to avoid content blocks on news articles
 - The `temp/` directory is auto-created and gitignored
 - Substack may require CAPTCHA on email/password login; use cookie-based auth (`COOKIE_PATH`) to avoid this — extract cookies manually from a browser session if needed
-- `python-substack`'s `from_markdown()` handles standard Markdown (headings, bold, links, bullets); complex elements may not render perfectly — use `verify_draft.py` to check
+- `python-substack`'s `from_markdown()` handles standard Markdown (headings, bold, links, bullets); complex elements may not render perfectly — use `tests/verify_draft.py` to check

@@ -3,8 +3,8 @@ Dev verification script: uses Playwright to log into Substack dashboard
 and confirm a draft exists with the expected title.
 
 Usage:
-    uv run --dev python verify_draft.py --title "February 25, 2026 香港每週新聞摘要"
-    uv run --dev python verify_draft.py --title "Test Draft" --screenshot out.png
+    uv run --dev python tests/verify_draft.py --title "February 25, 2026 香港每週新聞摘要"
+    uv run --dev python tests/verify_draft.py --title "Test Draft" --screenshot out.png
 """
 
 import argparse
@@ -12,6 +12,10 @@ import json
 import os
 import sys
 import time
+from pathlib import Path
+
+# Allow imports from project root when run as a script
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import dotenv
 from playwright.sync_api import sync_playwright, expect, TimeoutError as PlaywrightTimeoutError
