@@ -130,16 +130,18 @@ def generate_topics(df: pd.DataFrame, number_of_topics: int = 5) -> dict:
 def generate_articles_list_by_topic(
     major_themes: dict, headlines: pd.DataFrame
 ) -> dict:
+    article_list = headlines.reset_index().to_dict(orient="records")
+
     prompt = f"""
     You are a news editor for a news website. These are a number of major themes that we will cover.
 
     Major Themes:
     {major_themes}
 
-    Here are a list of headlines with the article uuid. Try to group them under the major themes provided. If the headline does not fit any of the major themes, group it under "Others".
+    Here are a list of headlines and summaries with the article uuid. Try to group them under the major themes provided. If the article does not fit any of the major themes, group it under "Others".
 
-    Headlines & uuid:
-    {headlines}
+    Headlines, summaries & uuid:
+    {article_list}
 
     Your output should be in JSON format.
     Schema:
@@ -155,15 +157,42 @@ def generate_articles_list_by_topic(
         )
         output = generate_response(prompt=prompt, validation_class=ArticlesByTopic)
 
-        is_valid_output = all(
+        has_valid_uuids = all(
             article["uuid"] in valid_uuids
             for topic in output["topics"]
             for article in topic["articles"]
         )
+        empty_topics = [
+            topic["topic"]
+            for topic in output["topics"]
+            if topic["topic"].lower() != "others"
+            and topic["topic"] != "其他"
+            and len(topic["articles"]) == 0
+        ]
 
-        if is_valid_output:
+        if has_valid_uuids and not empty_topics:
             return output
-        logger.warning("Invalid UUID in output. Regenerating...")
+        if not has_valid_uuids:
+            logger.warning("Invalid UUID in output. Regenerating...")
+        if empty_topics:
+            logger.warning("Empty articles for topics: %s. Regenerating...", empty_topics)
+
+    # After all retries: if UUIDs are valid, drop empty topics and proceed
+    if has_valid_uuids and empty_topics:
+        logger.warning(
+            "Dropping %d topic(s) with no matched articles after %d attempts: %s",
+            len(empty_topics),
+            MAX_UUID_VALIDATION_ATTEMPTS,
+            empty_topics,
+        )
+        output["topics"] = [
+            topic
+            for topic in output["topics"]
+            if topic["topic"].lower() == "others"
+            or topic["topic"] == "其他"
+            or len(topic["articles"]) > 0
+        ]
+        return output
 
     raise RuntimeError(
         f"Failed to generate valid article groupings after {MAX_UUID_VALIDATION_ATTEMPTS} attempts"
