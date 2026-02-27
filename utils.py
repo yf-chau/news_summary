@@ -1,13 +1,41 @@
 import json
 import logging
 import re
+import warnings
 from uuid import uuid4
 
 import feedparser
 import markdownify
 import pandas as pd
+import requests
+from bs4 import BeautifulSoup, MarkupResemblesLocatorWarning
+
+warnings.filterwarnings("ignore", category=MarkupResemblesLocatorWarning)
 
 logger = logging.getLogger(__name__)
+
+_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+}
+
+MIN_CONTENT_LENGTH = 100
+
+
+def _scrape_article(url: str) -> str:
+    """Fetch article page and extract body text as markdown."""
+    try:
+        resp = requests.get(url, headers=_HEADERS, timeout=15)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+        article = soup.find("article") or soup.find("body")
+        if article is None:
+            return ""
+        for tag in article.find_all(["script", "style", "nav", "footer", "header"]):
+            tag.decompose()
+        return html_to_markdown(str(article))
+    except Exception as e:
+        logger.warning("Failed to scrape %s: %s", url, e)
+        return ""
 
 
 def extract_news_data(rss_feeds: dict[str, str]) -> list[dict]:
@@ -31,6 +59,11 @@ def extract_news_data(rss_feeds: dict[str, str]) -> list[dict]:
                 "url": entry.get("link"),
                 "source": feed.feed.get("title"),
             }
+
+            if len(news_item["content"]) < MIN_CONTENT_LENGTH and news_item["url"]:
+                scraped = _scrape_article(news_item["url"])
+                if scraped:
+                    news_item["content"] = scraped
 
             news_items.append(news_item)
 
