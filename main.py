@@ -16,7 +16,7 @@ from utils import (
     extract_news_data,
     save_to_csv,
 )
-from substack_api import post_substack_draft, verify_auth, SubstackAuthError
+from substack_api import publish_substack_post, verify_auth, SubstackAuthError
 
 dotenv.load_dotenv()
 
@@ -127,7 +127,7 @@ def run_pipeline() -> None:
     _save_json(TEMP_DIR / "06-score.json", best_score)
 
     now = datetime.now()
-    post_substack_draft(
+    publish_substack_post(
         title=f"{now.year}年{now.month}月{now.day}日 香港每週新聞摘要",
         subtitle=f"本新聞摘要由 {MODEL} 自動生成。",
         content=digest_candidates[best_score["summary_id"] - 1]["text"],

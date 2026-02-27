@@ -190,10 +190,10 @@ def verify_auth() -> int:
     retry=retry_if_exception_type(Exception),
     reraise=True,
 )
-def post_substack_draft(title: str, content: str, subtitle: str = "本新聞摘要由AI自動生成。") -> dict:
-    """Create a Substack draft post from Markdown content.
+def publish_substack_post(title: str, content: str, subtitle: str = "本新聞摘要由AI自動生成。") -> dict:
+    """Create and publish a Substack post from Markdown content.
 
-    Preserves the same interface as the old substack_playwright.post_substack_draft().
+    Creates a draft, then immediately publishes it and sends to subscribers.
 
     Args:
         title: Post title.
@@ -216,15 +216,18 @@ def post_substack_draft(title: str, content: str, subtitle: str = "本新聞摘�
 
     draft = api.post_draft(post.get_draft())
     draft_id = draft.get("id")
-    logger.info("Draft created successfully (id=%s)", draft_id)
-    print(f"Draft created successfully (id={draft_id})")
+    logger.info("Draft created (id=%s), publishing...", draft_id)
+
+    api.publish_draft(draft_id, send=True)
+    logger.info("Post published and sent to subscribers (id=%s)", draft_id)
+    print(f"Post published successfully (id={draft_id})")
 
     return draft
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    result = post_substack_draft(
+    result = publish_substack_post(
         title="Test Draft",
         content="## Hello\n\n**This is a test draft.**\n\n- Item 1\n- Item 2\n",
     )
