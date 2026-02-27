@@ -12,7 +12,6 @@ dotenv.load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-COOKIE_PATH = os.getenv("COOKIE_PATH", "substack_cookies.json")
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)")
 _BULLET_RE = re.compile(r"^[*\-]\s+(.*)")
@@ -116,17 +115,35 @@ SUBSTACK_PASSWORD = os.environ.get("SUBSTACK_PASSWORD")
 SUBSTACK_URL = os.environ.get("SUBSTACK_URL")
 
 
+def _cookies_string_from_env(raw: str) -> str:
+    """Convert cookie env var to ``k=v; ...`` format.
+
+    Accepts either a JSON object (``{"k": "v", ...}``) or a bare
+    ``substack.sid`` session cookie value.
+    """
+    try:
+        cookie_dict = json.loads(raw)
+        return "; ".join(f"{k}={v}" for k, v in cookie_dict.items())
+    except (json.JSONDecodeError, AttributeError):
+        return f"substack.sid={raw}"
+
+
+SUBSTACK_SID = os.environ.get("SUBSTACK_SID")
+
+
 def _get_api() -> Api:
     """Authenticate with Substack, trying cookies first, then email/password."""
-    if os.path.exists(COOKIE_PATH):
-        logger.info("Authenticating with cookies from %s", COOKIE_PATH)
+    if SUBSTACK_SID:
+        logger.info("Authenticating with cookies from SUBSTACK_SID env var")
         try:
-            api = Api(cookies_path=COOKIE_PATH, publication_url=SUBSTACK_URL)
-            # Verify the session is valid
+            api = Api(
+                cookies_string=_cookies_string_from_env(SUBSTACK_SID),
+                publication_url=SUBSTACK_URL,
+            )
             api.get_user_id()
             return api
         except Exception as e:
-            logger.warning("Cookie auth failed (%s), falling back to email/password", e)
+            logger.warning("Cookie env auth failed (%s), falling back", e)
 
     if not SUBSTACK_EMAIL or not SUBSTACK_PASSWORD:
         raise ValueError(
@@ -135,14 +152,6 @@ def _get_api() -> Api:
 
     logger.info("Authenticating with email/password")
     api = Api(email=SUBSTACK_EMAIL, password=SUBSTACK_PASSWORD, publication_url=SUBSTACK_URL)
-
-    # Persist cookies for next run
-    try:
-        api.export_cookies(COOKIE_PATH)
-        logger.info("Saved session cookies to %s", COOKIE_PATH)
-    except Exception as e:
-        logger.warning("Could not save cookies: %s", e)
-
     return api
 
 

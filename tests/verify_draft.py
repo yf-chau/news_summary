@@ -23,21 +23,24 @@ from playwright_stealth import Stealth
 
 dotenv.load_dotenv()
 
-from substack_api import COOKIE_PATH, SUBSTACK_EMAIL, SUBSTACK_PASSWORD, SUBSTACK_URL
+from substack_api import SUBSTACK_EMAIL, SUBSTACK_PASSWORD, SUBSTACK_URL
 
 
 def load_cookies(context):
-    if not os.path.exists(COOKIE_PATH):
-        print(f"No cookie file at {COOKIE_PATH}, skipping cookie load.")
+    raw = os.environ.get("SUBSTACK_SID")
+    if not raw:
+        print("No SUBSTACK_SID env var set, skipping cookie load.")
         return
-    with open(COOKIE_PATH, "r") as f:
-        cookie_dict = json.load(f)
+    try:
+        cookie_dict = json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        cookie_dict = {"substack.sid": raw}
     cookies = [
         {"name": name, "value": value, "domain": ".substack.com", "path": "/"}
         for name, value in cookie_dict.items()
     ]
     context.add_cookies(cookies)
-    print(f"Loaded {len(cookies)} cookies from {COOKIE_PATH}")
+    print(f"Loaded {len(cookies)} cookies from SUBSTACK_SID")
 
 
 def login_if_needed(page):

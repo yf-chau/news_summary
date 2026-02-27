@@ -40,7 +40,7 @@ Required in `.env`:
 - `SUBSTACK_URL` — Substack publication base URL (e.g. `https://hknewsdigest.substack.com`)
 
 Optional:
-- `COOKIE_PATH` — Path to Substack cookies JSON (default: `substack_cookies.json`)
+- `SUBSTACK_SID` — Substack cookies as a JSON object string (preferred over email/password auth)
 - `HEADLESS` — Playwright headless mode for `verify_draft.py` (`true`/`false`, default: `true`)
 
 ## Tech Stack
@@ -81,10 +81,30 @@ docker build -t news-summary .
 docker run --env-file .env news-summary
 ```
 
+## Scheduling
+
+The pipeline runs automatically via GitHub Actions every Saturday at 09:00 HKT (01:00 UTC).
+
+- **Workflow file:** `.github/workflows/weekly-digest.yml`
+- **Trigger:** `cron: "0 1 * * 6"` + manual `workflow_dispatch`
+- **Manual run:** Go to **Actions** tab → **Weekly News Digest** → **Run workflow**
+
+### Required GitHub Repository Secrets
+
+| Secret | Value |
+|--------|-------|
+| `GEMINI_API_KEY` | Google Gemini API key |
+| `SUBSTACK_EMAIL` | Substack login email |
+| `SUBSTACK_PASSWORD` | Substack login password |
+| `SUBSTACK_URL` | e.g. `https://hknewsdigest.substack.com` |
+| `SUBSTACK_SID` | Full contents of `substack_cookies.json` (the JSON object) |
+
+The workflow uses `uv` directly (via `astral-sh/setup-uv`) instead of Docker. `SUBSTACK_SID` is passed as an env var — the Python code parses it into cookie strings at runtime.
+
 ## Common Pitfalls
 
 - Gemini may return invalid UUIDs when grouping articles; `generate_articles_list_by_topic()` has a retry loop for this
 - Safety settings are set to OFF for all Gemini categories to avoid content blocks on news articles
 - The `temp/` directory is auto-created and gitignored
-- Substack may require CAPTCHA on email/password login; use cookie-based auth (`COOKIE_PATH`) to avoid this — extract cookies manually from a browser session if needed
+- Substack may require CAPTCHA on email/password login; use cookie-based auth (`SUBSTACK_SID`) to avoid this — extract cookies manually from a browser session
 - `python-substack`'s `from_markdown()` handles standard Markdown (headings, bold, links, bullets); complex elements may not render perfectly — use `tests/verify_draft.py` to check

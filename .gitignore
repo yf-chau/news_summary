@@ -7,10 +7,7 @@ __pycache__/
 /.playwright-mcp
 
 .env
-substack_cookies.json
-substack_cookies_original.json
 news_data.csv
-substack_cookies_test.json
 
 # Debugging screenshots
 *.png

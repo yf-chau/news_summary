@@ -1,0 +1,27 @@
+name: Weekly News Digest
+
+on:
+  schedule:
+    - cron: "0 1 * * 6"   # Saturday 01:00 UTC = Saturday 09:00 HKT
+  workflow_dispatch:        # Allow manual trigger from GitHub UI
+
+jobs:
+  run-digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync --frozen --no-dev
+
+      - name: Run pipeline
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SUBSTACK_EMAIL: ${{ secrets.SUBSTACK_EMAIL }}
+          SUBSTACK_PASSWORD: ${{ secrets.SUBSTACK_PASSWORD }}
+          SUBSTACK_URL: ${{ secrets.SUBSTACK_URL }}
+          SUBSTACK_SID: ${{ secrets.SUBSTACK_SID }}
+        run: uv run --no-dev python main.py
