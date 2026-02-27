@@ -152,7 +152,7 @@ def _get_api() -> Api:
     retry=retry_if_exception_type(Exception),
     reraise=True,
 )
-def post_substack_draft(title: str, content: str) -> dict:
+def post_substack_draft(title: str, content: str, subtitle: str = "本新聞摘要由AI自動生成。") -> dict:
     """Create a Substack draft post from Markdown content.
 
     Preserves the same interface as the old substack_playwright.post_substack_draft().
@@ -160,6 +160,7 @@ def post_substack_draft(title: str, content: str) -> dict:
     Args:
         title: Post title.
         content: Markdown-formatted post body.
+        subtitle: Post subtitle.
 
     Returns:
         Dict with draft response from Substack API (includes "id" field).
@@ -170,7 +171,7 @@ def post_substack_draft(title: str, content: str) -> dict:
 
     post = Post(
         title=title,
-        subtitle="本新聞摘要由AI自動生成。",
+        subtitle=subtitle,
         user_id=user_id,
     )
     post.draft_body = _markdown_to_draft_body(content)

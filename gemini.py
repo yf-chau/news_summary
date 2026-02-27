@@ -25,6 +25,9 @@ from response_model import (
 )
 
 dotenv.load_dotenv()
+
+MODEL = "gemini-3-flash-preview"
+
 # genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 
 # # Create the model
@@ -75,7 +78,7 @@ def generate_response(
     prompt: str,
     validation_class: Optional[BaseModel] = None,
     lang: str = "tc",
-    model: str = "gemini-2.5-pro-preview-03-25",
+    model: str = MODEL,
     file: Optional[str] = None,
 ) -> str:
     system_prompt = {

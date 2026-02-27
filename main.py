@@ -3,6 +3,7 @@ import json
 import dotenv
 import pandas as pd
 import gemini
+from gemini import MODEL
 from datetime import datetime
 from utils import (
     generate_article_text,
@@ -148,7 +149,9 @@ if __name__ == "__main__":
     with open(os.path.join(temp_dir, "06-score.json"), "w") as f:
         json.dump(best_score, f, ensure_ascii=False, indent=4)
 
+    now = datetime.now()
     post_substack_draft(
-        title=f"{datetime.now().strftime('%B %d, %Y')} 香港每週新聞摘要",
+        title=f"{now.year}年{now.month}月{now.day}日 香港每週新聞摘要",
+        subtitle=f"本新聞摘要由 {MODEL} 自動生成。",
         content=final_text[best_score["summary_id"] - 1]["text"],
     )
