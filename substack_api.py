@@ -190,15 +190,22 @@ def verify_auth() -> int:
     retry=retry_if_exception_type(Exception),
     reraise=True,
 )
-def publish_substack_post(title: str, content: str, subtitle: str = "本新聞摘要由AI自動生成。") -> dict:
-    """Create and publish a Substack post from Markdown content.
+def publish_substack_post(
+    title: str,
+    content: str,
+    subtitle: str = "本新聞摘要由AI自動生成。",
+    draft_only: bool = False,
+) -> dict:
+    """Create and optionally publish a Substack post from Markdown content.
 
-    Creates a draft, then immediately publishes it and sends to subscribers.
+    Creates a draft, then publishes it and sends to subscribers unless
+    ``draft_only`` is True.
 
     Args:
         title: Post title.
         content: Markdown-formatted post body.
         subtitle: Post subtitle.
+        draft_only: If True, create a draft without publishing or emailing.
 
     Returns:
         Dict with draft response from Substack API (includes "id" field).
@@ -216,11 +223,15 @@ def publish_substack_post(title: str, content: str, subtitle: str = "本新聞�
 
     draft = api.post_draft(post.get_draft())
     draft_id = draft.get("id")
-    logger.info("Draft created (id=%s), publishing...", draft_id)
 
-    api.publish_draft(draft_id, send=True)
-    logger.info("Post published and sent to subscribers (id=%s)", draft_id)
-    print(f"Post published successfully (id={draft_id})")
+    if draft_only:
+        logger.info("Draft created (id=%s), skipping publish", draft_id)
+        print(f"Draft created successfully (id={draft_id})")
+    else:
+        logger.info("Draft created (id=%s), publishing...", draft_id)
+        api.publish_draft(draft_id, send=True)
+        logger.info("Post published and sent to subscribers (id=%s)", draft_id)
+        print(f"Post published successfully (id={draft_id})")
 
     return draft
 

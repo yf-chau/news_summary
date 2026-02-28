@@ -38,6 +38,10 @@ class Score(BaseModel):
     reason: str
 
 
+class SelectedArticles(BaseModel):
+    selected: list[ArticleItem]
+
+
 class ScoreModel(BaseModel):
     scores: list[Score]
 

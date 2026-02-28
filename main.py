@@ -1,3 +1,4 @@
+import argparse
 import json
 import logging
 import sys
@@ -12,6 +13,7 @@ from gemini import MODEL
 from utils import (
     generate_article_text,
     generate_article_links,
+    deduplicate_articles_by_url,
     append_summary_and_links,
     extract_news_data,
     save_to_csv,
@@ -38,6 +40,7 @@ RSS_FEEDS: dict[str, str] = {
 
 BEST_OF_OPTION = 1
 NUMBER_OF_TOPICS = 5
+MAX_LINKS_PER_TOPIC = 5
 
 
 def _save_json(path: Path, data: object) -> None:
@@ -96,10 +99,14 @@ def generate_digest(df: pd.DataFrame, n_topics: int) -> tuple[str, str]:
         if topic["topic"].lower() != "others" and topic["topic"] != "其他":
             articles = topic["articles"]
             articles_text = generate_article_text(articles, df)
-            articles_links = generate_article_links(articles, df)
             topics_summary["topics"].append(
                 gemini.topic_summary(topic["topic"], articles_text)
             )
+            unique_articles = deduplicate_articles_by_url(articles, df)
+            selected_articles = gemini.select_representative_articles(
+                topic["topic"], unique_articles, df, MAX_LINKS_PER_TOPIC
+            )
+            articles_links = generate_article_links(selected_articles, df)
             topics_link.append({"topic": topic, "link": articles_links})
 
     formatted_summary = gemini.subedit_summary(topics_summary)
@@ -113,7 +120,7 @@ def generate_digest(df: pd.DataFrame, n_topics: int) -> tuple[str, str]:
     return edited_text, pre_edited_text
 
 
-def run_pipeline() -> None:
+def run_pipeline(draft_only: bool = False) -> None:
     """Main entry point: load articles, generate digest, publish."""
     logging.basicConfig(level=logging.INFO)
 
@@ -151,8 +158,16 @@ def run_pipeline() -> None:
         title=f"{now.year}年{now.month}月{now.day}日 香港每週新聞摘要",
         subtitle=f"本新聞摘要由 {MODEL} 自動生成。",
         content=digest_candidates[best_score["summary_id"] - 1]["text"],
+        draft_only=draft_only,
     )
 
 
 if __name__ == "__main__":
-    run_pipeline()
+    parser = argparse.ArgumentParser(description="Generate and publish HK news digest")
+    parser.add_argument(
+        "--draft",
+        action="store_true",
+        help="Create a Substack draft without publishing or emailing",
+    )
+    args = parser.parse_args()
+    run_pipeline(draft_only=args.draft)

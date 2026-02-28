@@ -21,6 +21,7 @@ from response_model import (
     TopicSummary,
     TopicsSummary,
     ArticlesByTopic,
+    SelectedArticles,
 )
 
 dotenv.load_dotenv()
@@ -103,14 +104,19 @@ def generate_topics(df: pd.DataFrame, number_of_topics: int = 5) -> dict:
     article_list = df[["headline", "summary"]].to_dict(orient="records")
 
     prompt = f"""
-    You are a news editor for a news website. These are a list of news articles headlines and content. Identify the top {number_of_topics} major topics that was reported.
+    You are a news editor for a Hong Kong news website. These are a list of news articles headlines and content. Identify the top {number_of_topics} major topics that was reported.
+
+    **IMPORTANT: This digest covers Hong Kong local news only.** You must:
+    - Only select topics that are directly about Hong Kong — local politics, policy, courts, economy, society, housing, infrastructure, etc.
+    - Exclude purely international news (e.g. US politics, Middle East conflicts, global tech policy) even if reported by Hong Kong media.
+    - International stories may be included ONLY if they have a direct and specific impact on Hong Kong (e.g. a Hong Kong company's overseas operations, international sanctions affecting Hong Kong, trade policies targeting Hong Kong).
 
     When choosing the major topics, you should:
     1. Consider the number of articles reporting on the issue. More reporting indicates wider public interest.
-    2. Consider the issue's impact on the society as a whole and the economy.
+    2. Consider the issue's impact on Hong Kong society and economy specifically.
     3. Policy proposals and discussion should generally be accorded higher priority. For these topics, sometime it is useful to combine several issues under an overarching theme.
     4. Do not summarise court cases for different issues into a single topic.
-    5. Court cases should only be included if they have widespeard impact on the society.
+    5. Court cases should only be included if they have widespeard impact on Hong Kong society.
     6. In any case, there should not be more than {round(number_of_topics * 0.4)} topics related to court cases.
 
     Summarise each topic into a concise, news headline format.
@@ -133,12 +139,12 @@ def generate_articles_list_by_topic(
     article_list = headlines.reset_index().to_dict(orient="records")
 
     prompt = f"""
-    You are a news editor for a news website. These are a number of major themes that we will cover.
+    You are a news editor for a Hong Kong news website. These are a number of major themes that we will cover.
 
     Major Themes:
     {major_themes}
 
-    Here are a list of headlines and summaries with the article uuid. Try to group them under the major themes provided. If the article does not fit any of the major themes, group it under "Others".
+    Here are a list of headlines and summaries with the article uuid. Try to group them under the major themes provided. If the article does not fit any of the major themes, or if it is purely international news with no direct Hong Kong relevance, group it under "Others".
 
     Headlines, summaries & uuid:
     {article_list}
@@ -201,7 +207,7 @@ def generate_articles_list_by_topic(
 
 def topic_summary(topic: str, article_text: str) -> dict:
     prompt = f"""
-    You are a news editor for a news website. You are going to write a news summary for the topic: {topic}. You will be provided with a number of articles related to the topic, including the article headline and the article text.
+    You are a news editor for a Hong Kong news website. You are going to write a news summary for the topic: {topic}. You will be provided with a number of articles related to the topic, including the article headline and the article text.
 
     When writing the summary, you should:
     1. Only use the material available from the articles provided
@@ -221,6 +227,56 @@ def topic_summary(topic: str, article_text: str) -> dict:
 
     logger.info("Generating summary for topic %s...", topic)
     return generate_response(prompt=prompt, validation_class=TopicSummary)
+
+
+def select_representative_articles(
+    topic: str, articles: list[dict], df: pd.DataFrame, max_links: int = 5
+) -> list[dict]:
+    """Select the most representative articles for a topic's link section."""
+    if len(articles) <= max_links:
+        return articles
+
+    article_info = []
+    for article in articles:
+        row = df.loc[article["uuid"]]
+        article_info.append(
+            {"uuid": article["uuid"], "headline": row["headline"], "source": row["source"]}
+        )
+
+    prompt = f"""
+    你是一位香港新聞網站的編輯。以下是關於「{topic}」的 {len(articles)} 篇報導。
+    請從中選出最具代表性的 {max_links} 篇文章，作為讀者延伸閱讀的連結。
+
+    選擇時請優先考慮：
+    1. 來源多樣性：盡量選擇不同新聞來源的報導
+    2. 代表性：選擇最能反映該議題核心的報導
+    3. 角度覆蓋：選擇涵蓋不同面向的報導
+    4. 資訊獨特性：避免選擇內容高度重複的報導
+
+    文章列表：
+    {article_info}
+
+    Your output should be in JSON format.
+    Schema:
+    {SelectedArticles.model_json_schema()}
+    """
+
+    logger.info("Selecting %d representative articles for topic: %s", max_links, topic)
+    result = generate_response(prompt=prompt, validation_class=SelectedArticles)
+
+    valid_uuids = {a["uuid"] for a in articles}
+    selected = [a for a in result["selected"] if a["uuid"] in valid_uuids]
+
+    # Pad with remaining articles if Gemini returned fewer valid UUIDs
+    if len(selected) < max_links:
+        selected_uuids = {a["uuid"] for a in selected}
+        for article in articles:
+            if article["uuid"] not in selected_uuids:
+                selected.append(article)
+                if len(selected) >= max_links:
+                    break
+
+    return selected[:max_links]
 
 
 def subedit_summary(topics_summary: dict) -> dict:

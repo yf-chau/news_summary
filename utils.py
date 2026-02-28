@@ -99,11 +99,23 @@ def generate_article_text(articles: list[dict], df: pd.DataFrame) -> str:
     return "\n\n".join(parts)
 
 
+def deduplicate_articles_by_url(articles: list[dict], df: pd.DataFrame) -> list[dict]:
+    """Remove duplicate articles that share the same URL."""
+    seen_urls: set[str] = set()
+    unique: list[dict] = []
+    for article in articles:
+        url = df.loc[article["uuid"], "url"]
+        if url not in seen_urls:
+            seen_urls.add(url)
+            unique.append(article)
+    return unique
+
+
 def generate_article_links(articles: list[dict], df: pd.DataFrame) -> str:
     lines = []
     for article in articles:
         row = df.loc[article["uuid"]]
-        lines.append(f"* [{row['source']}：{row['headline']}]({row['url']})")
+        lines.append(f"[{row['source']}：{row['headline']}]({row['url']})")
     return "\n".join(lines)
 
 
