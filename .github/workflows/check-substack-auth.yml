@@ -2,7 +2,7 @@ name: Check Substack Auth
 
 on:
   schedule:
-    - cron: "0 1 * * 3"   # Wednesday 01:00 UTC = Wednesday 09:00 HKT
+    - cron: "0 23 * * 2"   # Tuesday 23:00 UTC = Wednesday 07:00 HKT
   workflow_dispatch:        # Allow manual trigger from GitHub UI
 
 jobs:

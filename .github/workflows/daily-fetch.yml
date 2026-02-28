@@ -2,7 +2,8 @@ name: Daily Article Fetch
 
 on:
   schedule:
-    - cron: "0 1 * * 0-5"   # Sun–Fri 01:00 UTC = 09:00 HKT (skip Saturday)
+    - cron: "0 11 * * *"     # Daily 11:00 UTC = 19:00 HKT
+    - cron: "0 23 * * 0-4,6" # Sun–Thu,Sat 23:00 UTC = 07:00 HKT (skip Fri — digest runs then)
   workflow_dispatch:          # Allow manual trigger
 
 jobs:

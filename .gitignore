@@ -10,5 +10,7 @@ __pycache__/
 news_data.csv
 /data
 
+/scripts
+
 # Debugging screenshots
 *.png
