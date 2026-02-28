@@ -10,7 +10,7 @@ The output language is **Traditional Chinese** (繁體中文). All Gemini prompt
 
 The pipeline runs in `main.py` and follows this flow:
 
-1. **RSS Fetch** — `utils.extract_news_data()` pulls articles from HK news feeds via `feedparser`
+1. **Article Loading** — `load_articles()` reads accumulated articles from `data/articles.jsonl` (built by daily fetches); falls back to fresh RSS fetch if no JSONL exists
 2. **Topic Generation** — `gemini.generate_topics()` identifies top N topics from headlines/summaries
 3. **Article Grouping** — `gemini.generate_articles_list_by_topic()` assigns articles to topics by UUID
 4. **Per-Topic Summary** — `gemini.topic_summary()` writes a 250–600 character Chinese summary per topic
@@ -23,6 +23,7 @@ The pipeline runs in `main.py` and follows this flow:
 | File | Purpose |
 |---|---|
 | `main.py` | Pipeline orchestrator |
+| `fetch_articles.py` | Daily RSS accumulator — deduplicates by URL, appends to JSONL, prunes >10 days |
 | `gemini.py` | Gemini API client, all LLM prompts, retry logic (tenacity) |
 | `utils.py` | RSS parsing, HTML→Markdown, article text/link formatting, JSON extraction |
 | `response_model.py` | Pydantic models for structured Gemini output validation |
@@ -58,6 +59,7 @@ Optional:
 
 ## Conventions
 
+- Accumulated articles are stored in `data/articles.jsonl` (one JSON object per line, gitignored, persisted between CI runs via `actions/cache`)
 - Intermediate outputs are saved as numbered JSON files in `temp/` (01-topics.json, 02-articles_by_topic.json, etc.)
 - All Gemini responses that need structure are validated against Pydantic models in `response_model.py`
 - Gemini responses are expected inside markdown ```json code blocks; `utils.extract_json_to_dict()` handles extraction
@@ -69,6 +71,9 @@ Optional:
 ```bash
 # Install dependencies
 uv sync
+
+# Fetch and accumulate today's articles
+uv run python fetch_articles.py
 
 # Run the pipeline
 uv run python main.py
@@ -83,13 +88,25 @@ docker run --env-file .env news-summary
 
 ## Scheduling
 
-The pipeline runs automatically via GitHub Actions on a **self-hosted runner** (macOS) every Saturday at 09:00 HKT (01:00 UTC). A self-hosted runner is required because Substack's Cloudflare bot protection blocks API requests from GitHub's datacenter IPs.
+Two workflows handle the weekly digest:
+
+### Daily Article Fetch (Sun–Fri)
+
+RSS feeds only retain ~1–2 days of articles. A daily fetch job accumulates articles throughout the week so Saturday's digest has full 7-day coverage.
+
+- **Workflow file:** `.github/workflows/daily-fetch.yml`
+- **Runner:** `ubuntu-latest` (GitHub-hosted — no secrets needed, only public RSS feeds)
+- **Trigger:** `cron: "0 1 * * 0-5"` (Sun–Fri 01:00 UTC / 09:00 HKT) + manual `workflow_dispatch`
+- **Storage:** `data/articles.jsonl` persisted between runs via `actions/cache` (shared across workflows on the same branch)
+
+### Weekly Digest (Saturday)
 
 - **Workflow file:** `.github/workflows/weekly-digest.yml`
-- **Runner:** `self-hosted` (macOS, residential IP)
+- **Runner:** `self-hosted` (macOS, residential IP — required because Substack's Cloudflare bot protection blocks GitHub datacenter IPs)
 - **Trigger:** `cron: "0 1 * * 6"` + manual `workflow_dispatch`
+- **Flow:** Restores cached articles → runs a final fetch → runs the full pipeline
 - **Manual run:** Go to **Actions** tab → **Weekly News Digest** → **Run workflow**
-- **Scheduled wake:** `sudo pmset repeat wakeorpoweron MTWRFSU 08:55:00` ensures the Mac wakes 5 minutes before the job (works with lid closed if power is connected)
+- **Scheduled wake:** `sudo pmset repeat wakeorpoweron WS 08:55:00` ensures the Mac wakes 5 minutes before the job (works with lid closed if power is connected)
 
 ### Self-Hosted Runner Setup
 
