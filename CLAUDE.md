@@ -133,7 +133,7 @@ The `SUBSTACK_SID` session cookie expires after ~90 days. There is no reliable w
 
 - **Preflight check** — `main.py` calls `substack_api.verify_auth()` before any Gemini API calls. If auth fails, the pipeline exits immediately with code 2 and a clear error message, avoiding wasted Gemini quota.
 - **`SubstackAuthError`** — Custom exception in `substack_api.py`, raised when both cookie and email/password auth fail.
-- **Mid-week auth check** — `.github/workflows/check-substack-auth.yml` runs every Wednesday (3 days before the Saturday digest) to verify the cookie is still valid. On failure, GitHub sends an email notification and writes to the job summary.
+- **Mid-week auth check** — `.github/workflows/check-substack-auth.yml` runs every Thursday (48 hours before the Saturday digest) to verify the cookie is still valid. On failure, GitHub sends an email notification and writes to the job summary.
 - **Failure alerts** — Both the digest and auth-check workflows write actionable messages to `$GITHUB_STEP_SUMMARY` on failure. Ensure **Settings > Notifications > Actions** is enabled in the GitHub repo to receive email alerts.
 
 ## Common Pitfalls
