@@ -2,6 +2,7 @@ import argparse
 import json
 import logging
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from datetime import datetime
 
@@ -16,7 +17,6 @@ from utils import (
     deduplicate_articles_by_url,
     append_summary_and_links,
     extract_news_data,
-    save_to_csv,
 )
 from substack_api import publish_substack_post, verify_auth, SubstackAuthError
 
@@ -82,6 +82,18 @@ def load_articles(rss_feeds: dict[str, str]) -> pd.DataFrame:
     return df
 
 
+def _process_topic(topic_name: str, articles: list[str], df: pd.DataFrame) -> tuple[dict, dict]:
+    """Process a single topic: generate summary and select representative links."""
+    articles_text = generate_article_text(articles, df)
+    summary = gemini.topic_summary(topic_name, articles_text)
+    unique_articles = deduplicate_articles_by_url(articles, df)
+    selected = gemini.select_representative_articles(
+        topic_name, unique_articles, df, MAX_LINKS_PER_TOPIC
+    )
+    links = generate_article_links(selected, df)
+    return summary, {"topic": {"topic": topic_name, "articles": articles}, "link": links}
+
+
 def generate_digest(df: pd.DataFrame, n_topics: int) -> tuple[str, str]:
     """Run topic generation -> summary -> subedit pipeline, return markdown."""
     topics = gemini.generate_topics(df[["headline", "summary"]], n_topics)
@@ -92,22 +104,23 @@ def generate_digest(df: pd.DataFrame, n_topics: int) -> tuple[str, str]:
     _save_json(TEMP_DIR / "01-topics.json", topics)
     _save_json(TEMP_DIR / "02-articles_by_topic.json", articles_grouped_by_topic)
 
-    topics_summary: dict[str, list] = {"topics": []}
-    topics_link: list[dict] = []
+    non_other_topics = [
+        t for t in articles_grouped_by_topic["topics"]
+        if t["topic"].lower() != "others" and t["topic"] != "其他"
+    ]
 
-    for topic in articles_grouped_by_topic["topics"]:
-        if topic["topic"].lower() != "others" and topic["topic"] != "其他":
-            articles = topic["articles"]
-            articles_text = generate_article_text(articles, df)
-            topics_summary["topics"].append(
-                gemini.topic_summary(topic["topic"], articles_text)
-            )
-            unique_articles = deduplicate_articles_by_url(articles, df)
-            selected_articles = gemini.select_representative_articles(
-                topic["topic"], unique_articles, df, MAX_LINKS_PER_TOPIC
-            )
-            articles_links = generate_article_links(selected_articles, df)
-            topics_link.append({"topic": topic, "link": articles_links})
+    with ThreadPoolExecutor() as executor:
+        futures = {
+            executor.submit(_process_topic, t["topic"], t["articles"], df): i
+            for i, t in enumerate(non_other_topics)
+        }
+        results = [None] * len(non_other_topics)
+        for future in as_completed(futures):
+            idx = futures[future]
+            results[idx] = future.result()
+
+    topics_summary = {"topics": [r[0] for r in results]}
+    topics_link = [r[1] for r in results]
 
     formatted_summary = gemini.subedit_summary(topics_summary)
 

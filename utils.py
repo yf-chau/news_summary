@@ -70,11 +70,6 @@ def extract_news_data(rss_feeds: dict[str, str]) -> list[dict]:
     return news_items
 
 
-def save_to_csv(news_items: list[dict], filename: str = "news_data.csv") -> None:
-    df = pd.DataFrame(news_items)
-    df.to_csv(filename, index=False)
-
-
 def html_to_markdown(html_content: str) -> str:
     if not html_content:
         return ""
