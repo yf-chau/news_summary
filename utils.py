@@ -123,7 +123,9 @@ def append_summary_and_links(formatted_summary: dict, topics_link: list[dict]) -
             f"#### Links\n\n"
             f"{link['link']}"
         )
-    return "\n\n".join(sections)
+    body = "\n\n".join(sections)
+    footnote = "---\n\n*本新聞摘要由人工智能生成，內容可能存在錯誤。如用於重要用途，請自行核實原文。*"
+    return f"{body}\n\n{footnote}"
 
 
 def extract_json_to_dict(text: str) -> dict | None:
