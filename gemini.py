@@ -147,7 +147,7 @@ def generate_articles_list_by_topic(
     Major Themes:
     {major_themes}
 
-    Here are a list of headlines and summaries with the article uuid. Try to group them under the major themes provided. If the article does not fit any of the major themes, or if it is purely international news with no direct Hong Kong relevance, group it under "Others".
+    Here are a list of headlines and summaries with the article uuid. Try to group them under the major themes provided. Only include articles that fit the major themes. Skip articles that do not fit any theme or are purely international news with no direct Hong Kong relevance.
 
     Headlines, summaries & uuid:
     {article_list}
@@ -174,9 +174,7 @@ def generate_articles_list_by_topic(
         empty_topics = [
             topic["topic"]
             for topic in output["topics"]
-            if topic["topic"].lower() != "others"
-            and topic["topic"] != "其他"
-            and len(topic["articles"]) == 0
+            if len(topic["articles"]) == 0
         ]
 
         if has_valid_uuids and not empty_topics:
@@ -197,9 +195,7 @@ def generate_articles_list_by_topic(
         output["topics"] = [
             topic
             for topic in output["topics"]
-            if topic["topic"].lower() == "others"
-            or topic["topic"] == "其他"
-            or len(topic["articles"]) > 0
+            if len(topic["articles"]) > 0
         ]
         return output
 

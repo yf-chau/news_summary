@@ -104,17 +104,14 @@ def generate_digest(df: pd.DataFrame, n_topics: int) -> tuple[str, str]:
     _save_json(TEMP_DIR / "01-topics.json", topics)
     _save_json(TEMP_DIR / "02-articles_by_topic.json", articles_grouped_by_topic)
 
-    non_other_topics = [
-        t for t in articles_grouped_by_topic["topics"]
-        if t["topic"].lower() != "others" and t["topic"] != "其他"
-    ]
+    topics = articles_grouped_by_topic["topics"]
 
     with ThreadPoolExecutor() as executor:
         futures = {
             executor.submit(_process_topic, t["topic"], t["articles"], df): i
-            for i, t in enumerate(non_other_topics)
+            for i, t in enumerate(topics)
         }
-        results = [None] * len(non_other_topics)
+        results = [None] * len(topics)
         for future in as_completed(futures):
             idx = futures[future]
             results[idx] = future.result()
