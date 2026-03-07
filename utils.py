@@ -91,30 +91,30 @@ def html_to_markdown(html_content: str) -> str:
     return markdown_text
 
 
-def generate_article_text(articles: list[dict], df: pd.DataFrame) -> str:
+def generate_article_text(articles: list[str], df: pd.DataFrame) -> str:
     parts = []
-    for article in articles:
-        row = df.loc[article["uuid"]]
+    for uuid in articles:
+        row = df.loc[uuid]
         parts.append(f"{row['headline']}\n{row['content']}")
     return "\n\n".join(parts)
 
 
-def deduplicate_articles_by_url(articles: list[dict], df: pd.DataFrame) -> list[dict]:
+def deduplicate_articles_by_url(articles: list[str], df: pd.DataFrame) -> list[str]:
     """Remove duplicate articles that share the same URL."""
     seen_urls: set[str] = set()
-    unique: list[dict] = []
-    for article in articles:
-        url = df.loc[article["uuid"], "url"]
+    unique: list[str] = []
+    for uuid in articles:
+        url = df.loc[uuid, "url"]
         if url not in seen_urls:
             seen_urls.add(url)
-            unique.append(article)
+            unique.append(uuid)
     return unique
 
 
-def generate_article_links(articles: list[dict], df: pd.DataFrame) -> str:
+def generate_article_links(articles: list[str], df: pd.DataFrame) -> str:
     lines = []
-    for article in articles:
-        row = df.loc[article["uuid"]]
+    for uuid in articles:
+        row = df.loc[uuid]
         lines.append(f"[{row['source']}：{row['headline']}]({row['url']})")
     return "\n".join(lines)
 

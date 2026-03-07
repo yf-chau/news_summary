@@ -153,10 +153,12 @@ def run_pipeline(draft_only: bool = False) -> None:
     best_score = gemini.evaluate_output(BEST_OF_OPTION, digest_candidates)
     _save_json(TEMP_DIR / "06-score.json", best_score)
 
+    earliest = df.published.min()
+    latest = df.published.max()
     now = datetime.now()
     publish_substack_post(
         title=f"{now.year}年{now.month}月{now.day}日 香港每週新聞摘要",
-        subtitle=f"本新聞摘要由 {MODEL} 自動生成。",
+        subtitle=f"本期涵蓋 {earliest.month}月{earliest.day}日 至 {latest.month}月{latest.day}日 的新聞。本新聞摘要由 {MODEL} 自動生成。",
         content=digest_candidates[best_score["summary_id"] - 1]["text"],
         draft_only=draft_only,
     )

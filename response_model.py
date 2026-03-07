@@ -16,7 +16,7 @@ class ArticleItem(BaseModel):
 
 class ArticlesListForATopic(BaseModel):
     topic: str
-    articles: list[ArticleItem]
+    articles: list[str]  # UUIDs only
 
 
 class ArticlesByTopic(BaseModel):
