@@ -1,5 +1,6 @@
 import logging
 import os
+from datetime import date
 
 import pandas as pd
 from google import genai
@@ -79,9 +80,11 @@ def generate_response(
         result = response.text.strip()
 
         logger.info(
-            "Tokens — input: %d, output: %d",
+            "Tokens — input: %d, output: %d, thinking: %d, finish: %s",
             response.usage_metadata.prompt_token_count,
             response.usage_metadata.candidates_token_count,
+            getattr(response.usage_metadata, 'thoughts_token_count', 0),
+            response.candidates[0].finish_reason,
         )
 
         if validation_class is not None:
@@ -164,9 +167,9 @@ def generate_articles_list_by_topic(
         output = generate_response(prompt=prompt, validation_class=ArticlesByTopic)
 
         has_valid_uuids = all(
-            article["uuid"] in valid_uuids
+            uuid in valid_uuids
             for topic in output["topics"]
-            for article in topic["articles"]
+            for uuid in topic["articles"]
         )
         empty_topics = [
             topic["topic"]
@@ -209,6 +212,8 @@ def topic_summary(topic: str, article_text: str) -> dict:
     prompt = f"""
     You are a news editor for a Hong Kong news website. You are going to write a news summary for the topic: {topic}. You will be provided with a number of articles related to the topic, including the article headline and the article text.
 
+    Today's date is {date.today().strftime('%Y-%m-%d')}.
+
     When writing the summary, you should:
     1. Only use the material available from the articles provided
     2. Provide a brief summary of the topic
@@ -230,17 +235,17 @@ def topic_summary(topic: str, article_text: str) -> dict:
 
 
 def select_representative_articles(
-    topic: str, articles: list[dict], df: pd.DataFrame, max_links: int = 5
-) -> list[dict]:
+    topic: str, articles: list[str], df: pd.DataFrame, max_links: int = 5
+) -> list[str]:
     """Select the most representative articles for a topic's link section."""
     if len(articles) <= max_links:
         return articles
 
     article_info = []
-    for article in articles:
-        row = df.loc[article["uuid"]]
+    for uuid in articles:
+        row = df.loc[uuid]
         article_info.append(
-            {"uuid": article["uuid"], "headline": row["headline"], "source": row["source"]}
+            {"uuid": uuid, "headline": row["headline"], "source": row["source"]}
         )
 
     prompt = f"""
@@ -264,15 +269,15 @@ def select_representative_articles(
     logger.info("Selecting %d representative articles for topic: %s", max_links, topic)
     result = generate_response(prompt=prompt, validation_class=SelectedArticles)
 
-    valid_uuids = {a["uuid"] for a in articles}
-    selected = [a for a in result["selected"] if a["uuid"] in valid_uuids]
+    valid_uuids = set(articles)
+    selected = [a["uuid"] for a in result["selected"] if a["uuid"] in valid_uuids]
 
     # Pad with remaining articles if Gemini returned fewer valid UUIDs
     if len(selected) < max_links:
-        selected_uuids = {a["uuid"] for a in selected}
-        for article in articles:
-            if article["uuid"] not in selected_uuids:
-                selected.append(article)
+        selected_uuids = set(selected)
+        for uuid in articles:
+            if uuid not in selected_uuids:
+                selected.append(uuid)
                 if len(selected) >= max_links:
                     break
 
@@ -288,7 +293,7 @@ def subedit_summary(topics_summary: dict) -> dict:
     2. ** Topic title:** Does the topic title make sense and matches the summary? Is the language concise and written in a news headline style?
     3. **Person Titles:** Ensure consistent titling for individuals throughout the summary.
     4. **Title Usage:** Avoid unnecessary honorifics like 先生, 女士. Use concise and professional titles where appropriate.
-    5. **Date Format:** Replace general terms like "today", "yesterday", "tomorrow" with specific dates.
+    5. **Date Format:** Today's date is {date.today().strftime('%Y-%m-%d')}. Replace general terms like "today", "yesterday", "tomorrow" with specific dates.
     6. **Summary Length:**  Aim for each topic summary to be approximately 250-600 words. Focus on conciseness and information density within this range.
 
     **Input Summary (Markdown):**
