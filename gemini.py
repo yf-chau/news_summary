@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from datetime import date
@@ -33,6 +34,8 @@ MODEL = "gemini-3-flash-preview"
 
 MAX_UUID_VALIDATION_ATTEMPTS = 5
 
+GEMINI_TIMEOUT = 150  # seconds per request; heaviest calls (~18k tokens) take ~60s
+
 generate_content_config = types.GenerateContentConfig(
     temperature=1,
     top_p=0.95,
@@ -48,6 +51,7 @@ generate_content_config = types.GenerateContentConfig(
         ),
         types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="OFF"),
     ],
+    http_options=types.HttpOptions(timeout=GEMINI_TIMEOUT),
 )
 
 
@@ -302,6 +306,118 @@ def subedit_summary(topics_summary: dict) -> dict:
 
     logger.info("Editing summary...")
     return generate_response(prompt=prompt, validation_class=TopicsSummary)
+
+
+def match_english_articles_to_topics(
+    topic_names: list[str], en_headlines: pd.DataFrame
+) -> dict:
+    """Match English articles to existing Chinese-identified topics."""
+    article_list = en_headlines.reset_index().to_dict(orient="records")
+
+    prompt = f"""
+    You are a news editor. Below are topics identified from Hong Kong news this week, and a list of English-language articles with their UUIDs.
+
+    Assign each English article to the most relevant topic. An article may only be assigned to one topic. Skip articles that don't clearly fit any topic.
+
+    Topics:
+    {topic_names}
+
+    English articles (headline, summary, uuid):
+    {article_list}
+
+    Your output should be in JSON format.
+    Schema:
+    {ArticlesByTopic.model_json_schema()}
+    """
+
+    valid_uuids = set(en_headlines.index)
+
+    for attempt in range(1, MAX_UUID_VALIDATION_ATTEMPTS + 1):
+        logger.info(
+            "Matching English articles to topics (attempt %d/%d)...",
+            attempt,
+            MAX_UUID_VALIDATION_ATTEMPTS,
+        )
+        output = generate_response(prompt=prompt, validation_class=ArticlesByTopic, lang="en")
+
+        has_valid_uuids = all(
+            uuid in valid_uuids
+            for topic in output["topics"]
+            for uuid in topic["articles"]
+        )
+        if has_valid_uuids:
+            return output
+        logger.warning("Invalid UUID in English article matching. Regenerating...")
+
+    # Return whatever we have, filtering invalid UUIDs
+    for topic in output["topics"]:
+        topic["articles"] = [u for u in topic["articles"] if u in valid_uuids]
+    return output
+
+
+def translate_digest_to_english(
+    zh_summary: dict, en_reference_texts: dict[str, str]
+) -> dict:
+    """Translate Chinese digest to English, grounding proper nouns on English sources."""
+    reference_section = ""
+    if en_reference_texts:
+        parts = []
+        for topic, text in en_reference_texts.items():
+            parts.append(f"### {topic}\n{text[:3000]}")
+        reference_section = "\n\n".join(parts)
+
+    prompt = f"""
+    You are a professional translator and news editor. Translate the following Hong Kong news digest from Traditional Chinese to English.
+
+    **Translation guidelines:**
+    1. Maintain the same topic structure and order.
+    2. For proper nouns (people, organizations, places, legislation):
+       - Use the official English spelling found in the reference English articles below.
+       - If not found in reference articles, use the Hong Kong Government's official English translation.
+       - As a last resort, use your own knowledge of standard English translations.
+    3. Keep each topic summary between 150 and 400 words.
+    4. Maintain a professional, journalistic tone suitable for an English-language news digest.
+    5. Do not add information not present in the Chinese summary.
+    6. Translate topic titles into concise English news headline style.
+
+    **Chinese digest to translate:**
+    {json.dumps(zh_summary, ensure_ascii=False, indent=2)}
+
+    **Reference English articles (use for proper noun grounding):**
+    {reference_section if reference_section else "(No English reference articles available)"}
+
+    Your output should be in JSON format.
+    Schema:
+    {TopicsSummary.model_json_schema()}
+    """
+
+    logger.info("Translating digest to English...")
+    return generate_response(prompt=prompt, validation_class=TopicsSummary, lang="en")
+
+
+def subedit_summary_en(topics_summary: dict) -> dict:
+    """Subedit the English digest for style consistency."""
+    prompt = f"""
+    Please act as a news subeditor. Edit the following English news digest for consistent style and presentation, while strictly preserving the original information.
+
+    **Style Guidelines:**
+    1. **Topic titles:** Ensure each title is concise and written in news headline style.
+    2. **Person Titles:** Use consistent, professional titles throughout.
+    3. **Date Format:** Today's date is {date.today().strftime('%Y-%m-%d')}. Replace relative terms like "today", "yesterday" with specific dates (e.g. "March 5").
+    4. **Summary Length:** Each topic summary should be approximately 150-400 words. Focus on conciseness and information density.
+    5. **Proper Nouns:** Ensure consistency in spelling of names, organizations, and places throughout.
+    6. **Grammar and Flow:** Fix any awkward phrasing from translation while preserving meaning.
+
+    **Input Summary:**
+    {topics_summary}
+
+    Your output should be in JSON format.
+    Schema:
+    {TopicsSummary.model_json_schema()}
+    """
+
+    logger.info("Editing English summary...")
+    return generate_response(prompt=prompt, validation_class=TopicsSummary, lang="en")
 
 
 def evaluate_output(best_of: int, output: list[dict]) -> dict:

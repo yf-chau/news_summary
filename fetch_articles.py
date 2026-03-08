@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from utils import extract_news_data
-from main import RSS_FEEDS
+from main import RSS_FEEDS, ENGLISH_SOURCES
 
 DATA_DIR = Path("data")
 ARTICLES_PATH = DATA_DIR / "articles.jsonl"
@@ -88,7 +88,7 @@ def main() -> None:
     existing_urls = load_existing_urls()
     logger.info("Existing articles: %d", len(existing_urls))
 
-    raw_articles = extract_news_data(RSS_FEEDS)
+    raw_articles = extract_news_data(RSS_FEEDS, english_sources=ENGLISH_SOURCES)
     now = datetime.now(timezone.utc).isoformat()
 
     new_articles = []

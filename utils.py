@@ -38,7 +38,12 @@ def _scrape_article(url: str) -> str:
         return ""
 
 
-def extract_news_data(rss_feeds: dict[str, str]) -> list[dict]:
+def extract_news_data(
+    rss_feeds: dict[str, str],
+    english_sources: set[str] | None = None,
+) -> list[dict]:
+    if english_sources is None:
+        english_sources = set()
     news_items = []
     for feed_title, feed_url in rss_feeds.items():
         logger.info("Extracting news data from %s...", feed_title)
@@ -58,6 +63,7 @@ def extract_news_data(rss_feeds: dict[str, str]) -> list[dict]:
                 ),
                 "url": entry.get("link"),
                 "source": feed.feed.get("title"),
+                "language": "en" if feed_title in english_sources else "zh",
             }
 
             if len(news_item["content"]) < MIN_CONTENT_LENGTH and news_item["url"]:
@@ -114,6 +120,40 @@ def generate_article_links(articles: list[str], df: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
+def generate_english_article_links(
+    topic_articles_zh: list[str],
+    topic_articles_en: list[str],
+    df: pd.DataFrame,
+    max_links: int = 5,
+) -> str:
+    """Generate links for English digest: English articles first, then Chinese."""
+    # Prefer SCMP before HKFP among English articles
+    en_sorted = sorted(
+        topic_articles_en,
+        key=lambda u: (0 if "scmp" in df.loc[u, "source"].lower() else 1),
+    ) if topic_articles_en else []
+
+    selected: list[str] = []
+    seen_urls: set[str] = set()
+    for uuid in en_sorted + topic_articles_zh:
+        url = df.loc[uuid, "url"]
+        if url not in seen_urls:
+            seen_urls.add(url)
+            selected.append(uuid)
+            if len(selected) >= max_links:
+                break
+
+    lines = []
+    for uuid in selected:
+        row = df.loc[uuid]
+        lang = row.get("language", "zh")
+        if lang == "en":
+            lines.append(f"[{row['source']}: {row['headline']}]({row['url']})")
+        else:
+            lines.append(f"(Chinese) [{row['source']}：{row['headline']}]({row['url']})")
+    return "\n".join(lines)
+
+
 def append_summary_and_links(formatted_summary: dict, topics_link: list[dict]) -> str:
     sections = []
     for summary, link in zip(formatted_summary["topics"], topics_link):
@@ -125,6 +165,20 @@ def append_summary_and_links(formatted_summary: dict, topics_link: list[dict]) -
         )
     body = "\n\n".join(sections)
     footnote = "---\n\n*本新聞摘要由人工智能生成，內容可能存在錯誤。如用於重要用途，請自行核實原文。*"
+    return f"{body}\n\n{footnote}"
+
+
+def append_summary_and_links_en(formatted_summary: dict, topics_link: list[dict]) -> str:
+    sections = []
+    for summary, link in zip(formatted_summary["topics"], topics_link):
+        sections.append(
+            f"## {summary['topic']}\n\n"
+            f"{summary['summary']}\n\n"
+            f"#### Links\n\n"
+            f"{link['link']}"
+        )
+    body = "\n\n".join(sections)
+    footnote = "---\n\n*This news digest is AI-generated. Please verify with original sources for important matters.*"
     return f"{body}\n\n{footnote}"
 
 

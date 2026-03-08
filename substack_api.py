@@ -135,46 +135,68 @@ def _cookies_string_from_env(raw: str) -> str:
 SUBSTACK_SID = os.environ.get("SUBSTACK_SID")
 
 
-def _get_api() -> Api:
+def _get_api(
+    publication_url: str | None = None,
+    sid_env: str = "SUBSTACK_SID",
+    email_env: str = "SUBSTACK_EMAIL",
+    password_env: str = "SUBSTACK_PASSWORD",
+) -> Api:
     """Authenticate with Substack, trying cookies first, then email/password.
+
+    Args:
+        publication_url: Override publication URL (defaults to SUBSTACK_URL env var).
+        sid_env: Name of the env var holding the session cookie.
+        email_env: Name of the env var holding the login email.
+        password_env: Name of the env var holding the login password.
 
     Raises:
         SubstackAuthError: When all authentication methods fail.
     """
-    if SUBSTACK_SID:
-        logger.info("Authenticating with cookies from SUBSTACK_SID env var")
+    url = publication_url or SUBSTACK_URL
+    sid = os.environ.get(sid_env)
+    email = os.environ.get(email_env)
+    password = os.environ.get(password_env)
+
+    if sid:
+        logger.info("Authenticating with cookies from %s env var", sid_env)
         try:
             api = Api(
-                cookies_string=_cookies_string_from_env(SUBSTACK_SID),
-                publication_url=SUBSTACK_URL,
+                cookies_string=_cookies_string_from_env(sid),
+                publication_url=url,
             )
             api.get_user_id()
             return api
         except Exception as e:
             logger.warning("Cookie env auth failed (%s), falling back", e)
 
-    if not SUBSTACK_EMAIL or not SUBSTACK_PASSWORD:
+    if not email or not password:
         raise SubstackAuthError(
-            "SUBSTACK_EMAIL and SUBSTACK_PASSWORD must be set when cookies are unavailable"
+            f"{email_env} and {password_env} must be set when cookies are unavailable"
         )
 
     logger.info("Authenticating with email/password")
     try:
-        api = Api(email=SUBSTACK_EMAIL, password=SUBSTACK_PASSWORD, publication_url=SUBSTACK_URL)
+        api = Api(email=email, password=password, publication_url=url)
         api.get_user_id()
         return api
     except Exception as e:
         raise SubstackAuthError(f"Email/password auth failed: {e}") from e
 
 
-def verify_auth() -> int:
+def verify_auth(
+    publication_url: str | None = None,
+    sid_env: str = "SUBSTACK_SID",
+    email_env: str = "SUBSTACK_EMAIL",
+    password_env: str = "SUBSTACK_PASSWORD",
+) -> int:
     """Verify Substack authentication and return the user ID.
 
     Raises:
         SubstackAuthError: When authentication fails.
     """
     try:
-        api = _get_api()
+        api = _get_api(publication_url=publication_url, sid_env=sid_env,
+                        email_env=email_env, password_env=password_env)
         user_id = api.get_user_id()
         logger.info("Auth preflight passed (user_id=%s)", user_id)
         return user_id
@@ -195,6 +217,10 @@ def publish_substack_post(
     content: str,
     subtitle: str = "本新聞摘要由AI自動生成。",
     draft_only: bool = False,
+    publication_url: str | None = None,
+    sid_env: str = "SUBSTACK_SID",
+    email_env: str = "SUBSTACK_EMAIL",
+    password_env: str = "SUBSTACK_PASSWORD",
 ) -> dict:
     """Create and optionally publish a Substack post from Markdown content.
 
@@ -206,11 +232,16 @@ def publish_substack_post(
         content: Markdown-formatted post body.
         subtitle: Post subtitle.
         draft_only: If True, create a draft without publishing or emailing.
+        publication_url: Override publication URL (defaults to SUBSTACK_URL env var).
+        sid_env: Name of the env var holding the session cookie.
+        email_env: Name of the env var holding the login email.
+        password_env: Name of the env var holding the login password.
 
     Returns:
         Dict with draft response from Substack API (includes "id" field).
     """
-    api = _get_api()
+    api = _get_api(publication_url=publication_url, sid_env=sid_env,
+                    email_env=email_env, password_env=password_env)
     user_id = api.get_user_id()
     logger.info("Authenticated as user %s", user_id)
 
