@@ -124,9 +124,10 @@ def generate_english_article_links(
     topic_articles_zh: list[str],
     topic_articles_en: list[str],
     df: pd.DataFrame,
-    max_links: int = 5,
+    max_zh_links: int = 5,
+    max_en_links: int = 3,
 ) -> str:
-    """Generate links for English digest: English articles first, then Chinese."""
+    """Generate links for English digest: English articles first (max 3), then Chinese (max 5)."""
     # Prefer SCMP before HKFP among English articles
     en_sorted = sorted(
         topic_articles_en,
@@ -135,13 +136,24 @@ def generate_english_article_links(
 
     selected: list[str] = []
     seen_urls: set[str] = set()
-    for uuid in en_sorted + topic_articles_zh:
+    en_count = 0
+    zh_count = 0
+
+    # Add English articles first (up to max_en_links)
+    for uuid in en_sorted:
         url = df.loc[uuid, "url"]
-        if url not in seen_urls:
+        if url not in seen_urls and en_count < max_en_links:
             seen_urls.add(url)
             selected.append(uuid)
-            if len(selected) >= max_links:
-                break
+            en_count += 1
+
+    # Then Chinese articles (up to max_zh_links)
+    for uuid in topic_articles_zh:
+        url = df.loc[uuid, "url"]
+        if url not in seen_urls and zh_count < max_zh_links:
+            seen_urls.add(url)
+            selected.append(uuid)
+            zh_count += 1
 
     lines = []
     for uuid in selected:

@@ -34,7 +34,7 @@ MODEL = "gemini-3-flash-preview"
 
 MAX_UUID_VALIDATION_ATTEMPTS = 5
 
-GEMINI_TIMEOUT = 150  # seconds per request; heaviest calls (~18k tokens) take ~60s
+GEMINI_TIMEOUT = 150_000  # milliseconds per request; heaviest calls (~18k tokens) take ~60s
 
 generate_content_config = types.GenerateContentConfig(
     temperature=1,

@@ -187,7 +187,7 @@ def generate_english_digest(
         en_uuids = en_articles_by_index[i] if i < len(en_articles_by_index) else []
         valid_en = [u for u in en_uuids if u in df.index]
         valid_zh = [u for u in zh_articles if u in df.index]
-        links = generate_english_article_links(valid_zh, valid_en, df, MAX_LINKS_PER_TOPIC)
+        links = generate_english_article_links(valid_zh, valid_en, df)
         en_topics_link.append({"topic": {"topic": topic_name, "articles": en_uuids}, "link": links})
 
     _save_json(TEMP_DIR / "10-en_topics_link.json", en_topics_link)
