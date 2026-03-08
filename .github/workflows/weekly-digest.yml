@@ -36,10 +36,9 @@ jobs:
       - name: Run pipeline
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          SUBSTACK_EMAIL: ${{ secrets.SUBSTACK_EMAIL }}
-          SUBSTACK_PASSWORD: ${{ secrets.SUBSTACK_PASSWORD }}
           SUBSTACK_URL: ${{ secrets.SUBSTACK_URL }}
           SUBSTACK_SID: ${{ secrets.SUBSTACK_SID }}
+          SUBSTACK_EN_URL: ${{ secrets.SUBSTACK_EN_URL }}
         run: caffeinate -i uv run --no-dev python main.py
 
       - name: Notify on failure

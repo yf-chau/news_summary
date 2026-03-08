@@ -199,27 +199,18 @@ def run_pipeline(draft_only: bool = False) -> None:
     """Main entry point: load articles, generate digest, publish."""
     logging.basicConfig(level=logging.INFO)
 
-    try:
-        verify_auth()
-    except SubstackAuthError as e:
-        logger.error("Substack auth preflight failed: %s", e)
-        print(
-            "ERROR: Substack authentication failed — SUBSTACK_SID cookie likely expired. "
-            "Please rotate.",
-            file=sys.stderr,
-        )
-        sys.exit(2)
-
-    # Also verify English Substack auth if configured
+    zh_url = os.environ.get("SUBSTACK_URL")
     en_url = os.environ.get("SUBSTACK_EN_URL")
-    if en_url:
+
+    for label, url in [("Chinese", zh_url), ("English", en_url)]:
+        if url is None:
+            continue
         try:
-            verify_auth(publication_url=en_url, sid_env="SUBSTACK_EN_SID",
-                        email_env="SUBSTACK_EN_EMAIL", password_env="SUBSTACK_EN_PASSWORD")
+            verify_auth(publication_url=url)
         except SubstackAuthError as e:
-            logger.error("English Substack auth preflight failed: %s", e)
+            logger.error("%s Substack auth preflight failed: %s", label, e)
             print(
-                "ERROR: English Substack authentication failed — SUBSTACK_EN_SID cookie likely expired. "
+                f"ERROR: {label} Substack authentication failed — SUBSTACK_SID cookie likely expired. "
                 "Please rotate.",
                 file=sys.stderr,
             )
@@ -263,6 +254,7 @@ def run_pipeline(draft_only: bool = False) -> None:
         subtitle=f"本期涵蓋 {earliest.month}月{earliest.day}日 至 {latest.month}月{latest.day}日 的新聞。本新聞摘要由 {MODEL} 自動生成。",
         content=digest_candidates[best_score["summary_id"] - 1]["text"],
         draft_only=draft_only,
+        publication_url=zh_url,
     )
 
     # Generate and publish English digest
@@ -277,9 +269,6 @@ def run_pipeline(draft_only: bool = False) -> None:
             content=en_text,
             draft_only=draft_only,
             publication_url=en_url,
-            sid_env="SUBSTACK_EN_SID",
-            email_env="SUBSTACK_EN_EMAIL",
-            password_env="SUBSTACK_EN_PASSWORD",
         )
 
 

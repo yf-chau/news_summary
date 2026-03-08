@@ -19,11 +19,18 @@ jobs:
 
       - name: Verify Substack auth
         env:
-          SUBSTACK_EMAIL: ${{ secrets.SUBSTACK_EMAIL }}
-          SUBSTACK_PASSWORD: ${{ secrets.SUBSTACK_PASSWORD }}
           SUBSTACK_URL: ${{ secrets.SUBSTACK_URL }}
           SUBSTACK_SID: ${{ secrets.SUBSTACK_SID }}
-        run: uv run --no-dev python -c "from substack_api import verify_auth; verify_auth()"
+          SUBSTACK_EN_URL: ${{ secrets.SUBSTACK_EN_URL }}
+        run: |
+          uv run --no-dev python -c "
+          import os
+          from substack_api import verify_auth
+          for label, url in [('Chinese', os.environ.get('SUBSTACK_URL')), ('English', os.environ.get('SUBSTACK_EN_URL'))]:
+              if url:
+                  verify_auth(publication_url=url)
+                  print(f'{label} Substack auth OK')
+          "
 
       - name: Notify on failure
         if: failure()
