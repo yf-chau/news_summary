@@ -36,9 +36,6 @@ jobs:
       - name: Run pipeline
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          SUBSTACK_URL: ${{ secrets.SUBSTACK_URL }}
-          SUBSTACK_SID: ${{ secrets.SUBSTACK_SID }}
-          SUBSTACK_EN_URL: ${{ secrets.SUBSTACK_EN_URL }}
         run: caffeinate -i uv run --no-dev python main.py
 
       - name: Notify on failure
@@ -48,4 +45,4 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "The pipeline failed. If the exit code was **2**, the SUBSTACK_SID cookie has likely expired." >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Action required:** Rotate the \`SUBSTACK_SID\` secret with a fresh cookie from a browser session." >> "$GITHUB_STEP_SUMMARY"
+          echo "**Action required:** Update the \`SUBSTACK_SID\` in the \`.env\` file on the self-hosted runner with a fresh cookie from a browser session." >> "$GITHUB_STEP_SUMMARY"

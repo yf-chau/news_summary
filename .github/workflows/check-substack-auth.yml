@@ -18,10 +18,6 @@ jobs:
         run: uv sync --frozen --no-dev
 
       - name: Verify Substack auth
-        env:
-          SUBSTACK_URL: ${{ secrets.SUBSTACK_URL }}
-          SUBSTACK_SID: ${{ secrets.SUBSTACK_SID }}
-          SUBSTACK_EN_URL: ${{ secrets.SUBSTACK_EN_URL }}
         run: |
           uv run --no-dev python -c "
           import os
@@ -39,4 +35,4 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "The SUBSTACK_SID cookie has likely expired. The Saturday digest will fail unless the cookie is rotated." >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Action required:** Rotate the \`SUBSTACK_SID\` secret with a fresh cookie from a browser session before Saturday." >> "$GITHUB_STEP_SUMMARY"
+          echo "**Action required:** Update the \`SUBSTACK_SID\` in the \`.env\` file on the self-hosted runner with a fresh cookie from a browser session before Saturday." >> "$GITHUB_STEP_SUMMARY"
