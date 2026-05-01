@@ -115,17 +115,29 @@ RSS feeds only retain ~1–2 days of articles. A daily fetch job accumulates art
 3. Install as a persistent service: `./svc.sh install && ./svc.sh start`
 4. The runner auto-starts on login/wake via `launchd`
 
+#### Substack `.env` for the Runner
+
+Substack auth env vars (`SUBSTACK_SID`, `SUBSTACK_URL`, `SUBSTACK_EN_URL`, etc.) are loaded from a local `.env` on the runner Mac, not from GitHub secrets.
+
+- **Source of truth:** `~/news_summary.env` (kept outside `~/Documents/` to avoid macOS TCC file-access blocks on the runner service)
+- **Repo `.env`** is a symlink → `~/news_summary.env` so the dev workflow uses the same file
+- **Runner workspace `.env`** at `~/actions-runner/_work/news_summary/news_summary/.env` is also a symlink → `~/news_summary.env`. Both workflows use `actions/checkout@v4` with `clean: false` so the symlink survives across runs.
+- **Cookie rotation:** edit `~/news_summary.env` (or the repo `.env` symlink — same file). No commit, no GitHub secret update needed.
+
+One-time runner-host setup:
+```bash
+mv /path/to/repo/.env ~/news_summary.env
+ln -s ~/news_summary.env /path/to/repo/.env
+ln -s ~/news_summary.env ~/actions-runner/_work/news_summary/news_summary/.env
+```
+
 ### Required GitHub Repository Secrets
 
 | Secret | Value |
 |--------|-------|
 | `GEMINI_API_KEY` | Google Gemini API key |
-| `SUBSTACK_EMAIL` | Substack login email |
-| `SUBSTACK_PASSWORD` | Substack login password |
-| `SUBSTACK_URL` | e.g. `https://hknewsdigest.substack.com` |
-| `SUBSTACK_SID` | `substack.sid` cookie value from a browser session |
 
-The workflow uses `uv` directly (via `astral-sh/setup-uv`) instead of Docker. `SUBSTACK_SID` is passed as an env var — the Python code parses it into cookie strings at runtime.
+All Substack auth lives in the runner-local `.env` (see above), not in GitHub secrets.
 
 ## Auth Resilience
 
@@ -133,7 +145,7 @@ The `SUBSTACK_SID` session cookie expires after ~90 days. There is no reliable w
 
 - **Preflight check** — `main.py` calls `substack_api.verify_auth()` before any Gemini API calls. If auth fails, the pipeline exits immediately with code 2 and a clear error message, avoiding wasted Gemini quota.
 - **`SubstackAuthError`** — Custom exception in `substack_api.py`, raised when both cookie and email/password auth fail.
-- **Mid-week auth check** — `.github/workflows/check-substack-auth.yml` runs every Thursday (48 hours before the Saturday digest) to verify the cookie is still valid. On failure, GitHub sends an email notification and writes to the job summary.
+- **Mid-week auth check** — `.github/workflows/check-substack-auth.yml` runs Thursday 18:48 HKT (36h before the Saturday digest) to verify the cookie is still valid. On failure, GitHub sends an email notification and writes to the job summary. To rotate the cookie, edit `~/news_summary.env` on the runner.
 - **Failure alerts** — Both the digest and auth-check workflows write actionable messages to `$GITHUB_STEP_SUMMARY` on failure. Ensure **Settings > Notifications > Actions** is enabled in the GitHub repo to receive email alerts.
 
 ## Common Pitfalls
