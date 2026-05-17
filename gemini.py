@@ -19,7 +19,6 @@ from tenacity import (
 from response_model import (
     is_valid_response,
     TopicsList,
-    ScoreModel,
     TopicSummary,
     TopicsSummary,
     ArticlesByTopic,
@@ -81,15 +80,22 @@ def generate_response(
             config=generate_content_config,
             contents=[full_prompt],
         )
-        result = response.text.strip()
 
+        finish_reason = response.candidates[0].finish_reason if response.candidates else None
         logger.info(
             "Tokens — input: %d, output: %d, thinking: %d, finish: %s",
             response.usage_metadata.prompt_token_count,
             response.usage_metadata.candidates_token_count,
             getattr(response.usage_metadata, 'thoughts_token_count', 0),
-            response.candidates[0].finish_reason,
+            finish_reason,
         )
+
+        if response.text is None:
+            safety = getattr(response.candidates[0], "safety_ratings", None) if response.candidates else None
+            raise ValueError(
+                f"Gemini returned no text (finish_reason={finish_reason}, safety={safety})"
+            )
+        result = response.text.strip()
 
         if validation_class is not None:
             json_result = extract_json_to_dict(result)
@@ -418,44 +424,3 @@ def subedit_summary_en(topics_summary: dict) -> dict:
 
     logger.info("Editing English summary...")
     return generate_response(prompt=prompt, validation_class=TopicsSummary, lang="en")
-
-
-def evaluate_output(best_of: int, output: list[dict]) -> dict:
-    summary_in_prompt = "\n\n".join(
-        f"**summary_id: {s['summary_id']}**\n\nsummary_text:{s['text']}"
-        for s in output
-    )
-
-    prompt = f"""
-    You are the chief editor for an company that produce media summary for news. You will be presented with {best_of} choices of news summary and score them against each other. The score should be between 1 and 100.
-
-    You can assume the style and formatting of the summary is correct.
-
-    You should score them using these criteria:
-    1. Consistency: Do the summaries have the same key points and structure?
-    2. Clarity: Is the summary easy to understand for a general audience which might not have background knowledge on the issue being discussed?
-    3. Relevance: Does the summary provides a clear overview of the main points and key takeaways of the topic?
-    4. Order of topics: Are the topics arranged in order of importance? You should consider the impact of the topics on the society as a whole and the economy.
-    5. The topics are independent of each other and they should cover a wide range of issues.
-
-    Here are the summaries:
-    {summary_in_prompt}
-
-    Your output should be in JSON format.
-    Schema:
-    {ScoreModel.model_json_schema()}
-    ```
-    """
-
-    logger.info("Evaluating output...")
-
-    score = generate_response(prompt=prompt, validation_class=ScoreModel)
-
-    best_score = max(score["scores"], key=lambda x: x["score"])
-    logger.info(
-        "Best score — Summary ID: %d, Score: %d",
-        best_score["summary_id"],
-        best_score["score"],
-    )
-
-    return best_score

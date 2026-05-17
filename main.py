@@ -45,7 +45,6 @@ RSS_FEEDS: dict[str, str] = {
 
 ENGLISH_SOURCES = {"SCMP", "HKFP"}
 
-BEST_OF_OPTION = 1
 NUMBER_OF_TOPICS = 5
 MAX_LINKS_PER_TOPIC = 5
 
@@ -221,28 +220,12 @@ def run_pipeline(draft_only: bool = False) -> None:
     # Filter to Chinese-only articles for the Chinese digest pipeline
     df_zh = df[df["language"] == "zh"] if "language" in df.columns else df
 
-    digest_candidates: list[dict] = []
-    # Store intermediates from last run for English pipeline
-    last_formatted_summary = None
-    last_topics_link = None
+    edited_text, pre_edited_text, formatted_summary, topics_link = generate_digest(
+        df_zh, NUMBER_OF_TOPICS
+    )
 
-    for i in range(1, BEST_OF_OPTION + 1):
-        logger.info("Generating try %d of %d", i, BEST_OF_OPTION)
-
-        edited_text, pre_edited_text, formatted_summary, topics_link = generate_digest(
-            df_zh, NUMBER_OF_TOPICS
-        )
-        digest_candidates.append({"summary_id": i, "text": edited_text})
-        last_formatted_summary = formatted_summary
-        last_topics_link = topics_link
-
-        (TEMP_DIR / f"summary-{i}_pre_edited.md").write_text(pre_edited_text)
-        (TEMP_DIR / f"summary-{i}_edited.md").write_text(edited_text)
-
-    _save_json(TEMP_DIR / "05-final_text.json", digest_candidates)
-
-    best_score = gemini.evaluate_output(BEST_OF_OPTION, digest_candidates)
-    _save_json(TEMP_DIR / "06-score.json", best_score)
+    (TEMP_DIR / "summary_pre_edited.md").write_text(pre_edited_text)
+    (TEMP_DIR / "summary_edited.md").write_text(edited_text)
 
     earliest = df_zh.published.min()
     latest = df_zh.published.max()
@@ -252,7 +235,7 @@ def run_pipeline(draft_only: bool = False) -> None:
     publish_substack_post(
         title=f"{now.year}年{now.month}月{now.day}日 香港每週新聞摘要",
         subtitle=f"本期涵蓋 {earliest.month}月{earliest.day}日 至 {latest.month}月{latest.day}日 的新聞。本新聞摘要由 {MODEL} 自動生成。",
-        content=digest_candidates[best_score["summary_id"] - 1]["text"],
+        content=edited_text,
         draft_only=draft_only,
         publication_url=zh_url,
     )
@@ -260,7 +243,7 @@ def run_pipeline(draft_only: bool = False) -> None:
     # Generate and publish English digest
     if en_url:
         logger.info("Generating English digest...")
-        en_text = generate_english_digest(last_formatted_summary, last_topics_link, df)
+        en_text = generate_english_digest(formatted_summary, topics_link, df)
         (TEMP_DIR / "summary_en.md").write_text(en_text)
 
         publish_substack_post(

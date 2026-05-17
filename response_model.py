@@ -32,18 +32,8 @@ class TopicsSummary(BaseModel):
     topics: list[TopicSummary]
 
 
-class Score(BaseModel):
-    summary_id: int
-    score: int
-    reason: str
-
-
 class SelectedArticles(BaseModel):
     selected: list[ArticleItem]
-
-
-class ScoreModel(BaseModel):
-    scores: list[Score]
 
 
 def is_valid_response(response: dict, model_class: type[BaseModel]) -> bool:

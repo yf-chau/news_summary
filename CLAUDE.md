@@ -131,13 +131,9 @@ ln -s ~/news_summary.env /path/to/repo/.env
 ln -s ~/news_summary.env ~/actions-runner/_work/news_summary/news_summary/.env
 ```
 
-### Required GitHub Repository Secrets
+### GitHub Repository Secrets
 
-| Secret | Value |
-|--------|-------|
-| `GEMINI_API_KEY` | Google Gemini API key |
-
-All Substack auth lives in the runner-local `.env` (see above), not in GitHub secrets.
+None required. Both `GEMINI_API_KEY` and Substack auth live in the runner-local `.env` (see above), loaded by `dotenv.load_dotenv()`. The runner is self-hosted on a Mac, so it has direct access to that file.
 
 ## Auth Resilience
 

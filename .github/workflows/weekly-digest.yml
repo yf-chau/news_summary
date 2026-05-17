@@ -36,8 +36,6 @@ jobs:
           key: articles-${{ github.run_id }}
 
       - name: Run pipeline
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: caffeinate -i uv run --no-dev python main.py
 
       - name: Notify on failure
