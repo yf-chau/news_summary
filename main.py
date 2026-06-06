@@ -82,7 +82,7 @@ def load_articles(
     df.to_csv(csv_filepath, index=False)
 
     df.set_index("uuid", inplace=True)
-    df.published = pd.to_datetime(df.published, utc=True)
+    df.published = pd.to_datetime(df.published, utc=True, format="mixed")
     today = pd.Timestamp.today()
     week_ago = pd.Timestamp(today - pd.Timedelta(days=7)).tz_localize("UTC")
     df = df[df.published > week_ago]
