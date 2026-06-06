@@ -149,7 +149,14 @@ def generate_topics(df: pd.DataFrame, number_of_topics: int = 5) -> dict:
 def generate_articles_list_by_topic(
     major_themes: dict, headlines: pd.DataFrame
 ) -> dict:
-    article_list = headlines.reset_index().to_dict(orient="records")
+    # Use sequential integer IDs instead of UUIDs — verbatim copying of
+    # 32-char hex UUIDs is unreliable; small integers are not.
+    idx_to_uuid: dict[str, str] = {}
+    article_list = []
+    for i, (uuid_, row) in enumerate(headlines.iterrows(), start=1):
+        sid = str(i)
+        idx_to_uuid[sid] = uuid_
+        article_list.append({"id": sid, "headline": row.headline, "summary": row.summary})
 
     prompt = f"""
     You are a news editor for a Hong Kong news website. These are a number of major themes that we will cover.
@@ -157,16 +164,16 @@ def generate_articles_list_by_topic(
     Major Themes:
     {major_themes}
 
-    Here are a list of headlines and summaries with the article uuid. Try to group them under the major themes provided. Only include articles that fit the major themes. Skip articles that do not fit any theme or are purely international news with no direct Hong Kong relevance.
+    Here are a list of headlines and summaries with the article id. Try to group them under the major themes provided. Only include articles that fit the major themes. Skip articles that do not fit any theme or are purely international news with no direct Hong Kong relevance.
 
-    Headlines, summaries & uuid:
+    Headlines, summaries & id:
     {article_list}
 
-    Your output should be in JSON format.
+    Your output should be in JSON format. The "articles" field for each topic should be a list of id strings.
     Schema:
     {ArticlesByTopic.model_json_schema()}
     """
-    valid_uuids = set(headlines.index)
+    valid_ids = set(idx_to_uuid.keys())
 
     for attempt in range(1, MAX_UUID_VALIDATION_ATTEMPTS + 1):
         logger.info(
@@ -176,10 +183,10 @@ def generate_articles_list_by_topic(
         )
         output = generate_response(prompt=prompt, validation_class=ArticlesByTopic)
 
-        has_valid_uuids = all(
-            uuid in valid_uuids
+        has_valid_ids = all(
+            aid in valid_ids
             for topic in output["topics"]
-            for uuid in topic["articles"]
+            for aid in topic["articles"]
         )
         empty_topics = [
             topic["topic"]
@@ -187,15 +194,16 @@ def generate_articles_list_by_topic(
             if len(topic["articles"]) == 0
         ]
 
-        if has_valid_uuids and not empty_topics:
+        if has_valid_ids and not empty_topics:
+            _map_ids_to_uuids(output, idx_to_uuid)
             return output
-        if not has_valid_uuids:
-            logger.warning("Invalid UUID in output. Regenerating...")
+        if not has_valid_ids:
+            logger.warning("Invalid id in output. Regenerating...")
         if empty_topics:
             logger.warning("Empty articles for topics: %s. Regenerating...", empty_topics)
 
-    # After all retries: if UUIDs are valid, drop empty topics and proceed
-    if has_valid_uuids and empty_topics:
+    # After all retries: if ids are valid, drop empty topics and proceed
+    if has_valid_ids and empty_topics:
         logger.warning(
             "Dropping %d topic(s) with no matched articles after %d attempts: %s",
             len(empty_topics),
@@ -207,11 +215,17 @@ def generate_articles_list_by_topic(
             for topic in output["topics"]
             if len(topic["articles"]) > 0
         ]
+        _map_ids_to_uuids(output, idx_to_uuid)
         return output
 
     raise RuntimeError(
         f"Failed to generate valid article groupings after {MAX_UUID_VALIDATION_ATTEMPTS} attempts"
     )
+
+
+def _map_ids_to_uuids(output: dict, idx_to_uuid: dict[str, str]) -> None:
+    for topic in output["topics"]:
+        topic["articles"] = [idx_to_uuid[aid] for aid in topic["articles"]]
 
 
 def topic_summary(topic: str, article_text: str) -> dict:
