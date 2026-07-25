@@ -36,7 +36,10 @@ jobs:
           key: articles-${{ github.run_id }}
 
       - name: Run pipeline
-        run: caffeinate -i uv run --no-dev python main.py
+        # -s = PreventSystemSleep: holds the Mac awake through the run even in
+        # DarkWake. -i (idle-only) did not override macOS's forced "Maintenance
+        # Sleep", which killed the first scheduled attempt each week.
+        run: caffeinate -s uv run --no-dev python main.py
 
       - name: Notify on failure
         if: failure()
