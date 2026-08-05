@@ -103,10 +103,10 @@ RSS feeds only retain ~1–2 days of articles. A daily fetch job accumulates art
 
 - **Workflow file:** `.github/workflows/weekly-digest.yml`
 - **Runner:** `self-hosted` (macOS, residential IP — required because Substack's Cloudflare bot protection blocks GitHub datacenter IPs)
-- **Trigger:** `cron: "0 1 * * 6"` + manual `workflow_dispatch`
+- **Trigger:** `cron: "48 22 * * 5"` (Fri 22:48 UTC) + manual `workflow_dispatch`
 - **Flow:** Restores cached articles → runs a final fetch → runs the full pipeline
 - **Manual run:** Go to **Actions** tab → **Weekly News Digest** → **Run workflow**
-- **Scheduled wake:** `sudo pmset repeat wakeorpoweron WS 08:55:00` ensures the Mac wakes 5 minutes before the job (works with lid closed if power is connected)
+- **Sleep/wake:** No scheduled `pmset` wake is needed. The self-hosted runner holds a persistent connection and wake-on-network (`pmset womp 1`, on AC) brings the Mac out of sleep on demand — jobs are picked up within ~2–3 s of GitHub dispatching them even on days with no scheduled wake (verified against the Thursday auth-check runs, which never had one). The pipeline step runs under `caffeinate -s` (PreventSystemSleep), which stops macOS's forced "Maintenance Sleep" from killing a run mid-flight; the earlier `caffeinate -i` (idle-only) did **not** prevent this and caused the first scheduled attempt to fail most weeks (a manual rerun then succeeded). A previous `scripts/update-pmset.sh` LaunchDaemon that set a Tue/Fri wake was removed as redundant once this was understood.
 
 ### Self-Hosted Runner Setup
 
@@ -141,7 +141,7 @@ The `SUBSTACK_SID` session cookie expires after ~90 days. There is no reliable w
 
 - **Preflight check** — `main.py` calls `substack_api.verify_auth()` before any Gemini API calls. If auth fails, the pipeline exits immediately with code 2 and a clear error message, avoiding wasted Gemini quota.
 - **`SubstackAuthError`** — Custom exception in `substack_api.py`, raised when both cookie and email/password auth fail.
-- **Mid-week auth check** — `.github/workflows/check-substack-auth.yml` runs Thursday 18:48 HKT (36h before the Saturday digest) to verify the cookie is still valid. On failure, GitHub sends an email notification and writes to the job summary. To rotate the cookie, edit `~/news_summary.env` on the runner.
+- **Mid-week auth check** — `.github/workflows/check-substack-auth.yml` runs Thursday (`cron: "48 10 * * 4"`, 10:48 UTC), ~36h before the Saturday digest, to verify the cookie is still valid. On failure, GitHub sends an email notification and writes to the job summary. To rotate the cookie, edit `~/news_summary.env` on the runner.
 - **Failure alerts** — Both the digest and auth-check workflows write actionable messages to `$GITHUB_STEP_SUMMARY` on failure. Ensure **Settings > Notifications > Actions** is enabled in the GitHub repo to receive email alerts.
 
 ## Common Pitfalls
