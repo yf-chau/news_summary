@@ -7,8 +7,18 @@ __pycache__/
 /.playwright-mcp
 
 .env
+.env.*
+!.env.sample
 news_data.csv
 /data
+
+# Credentials — never commit. A selenium_cookies.json containing a real
+# substack.sid was committed in f5cf5e9 (2025-03-04) before these rules existed.
+*cookies*.json
+*.pem
+*.key
+secrets.json
+credentials.json
 
 /scripts
 
