@@ -9,6 +9,19 @@ jobs:
   run-digest:
     runs-on: self-hosted
     steps:
+      - name: Prevent sleep for the whole job
+        # macOS forces "Maintenance Sleep" even mid-step, which suspends the
+        # network and makes GitHub cancel the job with "runner lost
+        # communication". This must cover EVERY step, not just the pipeline:
+        # run 31848809059 died 20s into the article fetch. -s =
+        # PreventSystemSleep (holds the Mac awake even in DarkWake); -i
+        # (idle-only) does not override Maintenance Sleep. -t 5400 is a
+        # self-expiring backstop so the lock can't leak if the job is killed
+        # before the release step runs.
+        run: |
+          nohup caffeinate -s -t 5400 >/dev/null 2>&1 &
+          echo "CAFFEINATE_PID=$!" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v4
         with:
           clean: false
@@ -36,10 +49,11 @@ jobs:
           key: articles-${{ github.run_id }}
 
       - name: Run pipeline
-        # -s = PreventSystemSleep: holds the Mac awake through the run even in
-        # DarkWake. -i (idle-only) did not override macOS's forced "Maintenance
-        # Sleep", which killed the first scheduled attempt each week.
-        run: caffeinate -s uv run --no-dev python main.py
+        run: uv run --no-dev python main.py
+
+      - name: Release sleep lock
+        if: always()
+        run: kill "$CAFFEINATE_PID" 2>/dev/null || true
 
       - name: Notify on failure
         if: failure()
