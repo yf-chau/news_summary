@@ -9,6 +9,15 @@ jobs:
   check-auth:
     runs-on: self-hosted
     steps:
+      - name: Prevent sleep for the whole job
+        # Same failure mode as the digest workflow: macOS forced "Maintenance
+        # Sleep" suspends the network mid-step and GitHub cancels the job with
+        # "runner lost communication". This job is short (~20s) so the -t
+        # backstop is correspondingly short. See weekly-digest.yml for detail.
+        run: |
+          nohup caffeinate -s -t 900 >/dev/null 2>&1 &
+          echo "CAFFEINATE_PID=$!" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v4
         with:
           clean: false
@@ -29,6 +38,10 @@ jobs:
                   verify_auth(publication_url=url)
                   print(f'{label} Substack auth OK')
           "
+
+      - name: Release sleep lock
+        if: always()
+        run: kill "$CAFFEINATE_PID" 2>/dev/null || true
 
       - name: Notify on failure
         if: failure()
