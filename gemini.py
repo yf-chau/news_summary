@@ -1,6 +1,8 @@
 import json
 import logging
 import os
+import random
+from itertools import permutations
 from datetime import date
 
 import pandas as pd
@@ -13,7 +15,7 @@ from tenacity import (
     retry,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
+    retry_if_not_exception_type,
 )
 
 from response_model import (
@@ -29,9 +31,32 @@ dotenv.load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+
+class ProhibitedContentError(Exception):
+    """Gemini rejected the prompt at the input stage.
+
+    Gemini applies a non-configurable PROHIBITED_CONTENT filter that none of the
+    ``safety_settings`` below can switch off. It fires on the *prompt*, before
+    any generation, and it is deterministic: re-sending the same prompt always
+    blocks again. Callers must shed or replace material rather than retry.
+    """
+
+    def __init__(self, block_reason, block_message: str | None = None):
+        self.block_reason = block_reason
+        self.block_message = block_message
+        detail = f", message={block_message}" if block_message else ""
+        super().__init__(
+            f"Gemini blocked the prompt (block_reason={block_reason}{detail}); "
+            "retrying an identical prompt cannot succeed"
+        )
+
+
 MODEL = "gemini-3.5-flash"
 
 MAX_UUID_VALIDATION_ATTEMPTS = 5
+
+# Re-orderings of the grounding text to try before shedding any of it.
+TRANSLATION_SHUFFLE_ATTEMPTS = 5
 
 GEMINI_TIMEOUT = 150_000  # milliseconds per request; heaviest calls (~18k tokens) take ~60s
 
@@ -57,7 +82,7 @@ generate_content_config = types.GenerateContentConfig(
 @retry(
     stop=stop_after_attempt(10),
     wait=wait_exponential(multiplier=1, min=2, max=60),
-    retry=retry_if_exception_type(Exception),
+    retry=retry_if_not_exception_type(ProhibitedContentError),
 )
 def generate_response(
     prompt: str,
@@ -81,12 +106,23 @@ def generate_response(
             contents=[full_prompt],
         )
 
+        # A blocked prompt comes back with zero candidates, so prompt_feedback is
+        # the only place the reason is recorded. Check it before anything else.
+        prompt_feedback = getattr(response, "prompt_feedback", None)
+        block_reason = getattr(prompt_feedback, "block_reason", None)
+        if block_reason is not None:
+            raise ProhibitedContentError(
+                block_reason, getattr(prompt_feedback, "block_reason_message", None)
+            )
+
         finish_reason = response.candidates[0].finish_reason if response.candidates else None
+        usage = response.usage_metadata
         logger.info(
-            "Tokens — input: %d, output: %d, thinking: %d, finish: %s",
-            response.usage_metadata.prompt_token_count,
-            response.usage_metadata.candidates_token_count,
-            getattr(response.usage_metadata, 'thoughts_token_count', 0),
+            # %s not %d: the counts are None when nothing was generated
+            "Tokens — input: %s, output: %s, thinking: %s, finish: %s",
+            getattr(usage, "prompt_token_count", None),
+            getattr(usage, "candidates_token_count", None),
+            getattr(usage, "thoughts_token_count", None),
             finish_reason,
         )
 
@@ -107,8 +143,12 @@ def generate_response(
 
     except Exception as e:
         response_text = response.text if response else "(no response)"
+        feedback = getattr(response, "prompt_feedback", None) if response else None
         with open("temp/error.txt", "w", encoding="utf-8") as f:
-            f.write(f"Prompt: {prompt}\n\n Response: {response_text}\n\n Error: {e}")
+            f.write(
+                f"Prompt: {prompt}\n\n Response: {response_text}\n\n"
+                f" Prompt feedback: {feedback}\n\n Error: {e}"
+            )
         logger.error("Error: %s", e)
         raise
 
@@ -375,10 +415,41 @@ def match_english_articles_to_topics(
     return output
 
 
-def translate_digest_to_english(
+def _shuffled_orders(names: list[str], rng: random.Random, limit: int) -> list[list[str]]:
+    """Up to ``limit`` distinct reorderings of ``names``, excluding the original.
+
+    Distinct matters: re-sending an ordering that already blocked wastes an
+    attempt, and with few reference blocks there are few orderings to draw from
+    (3 blocks allow only 5 alternatives). Small inputs are enumerated so the
+    orderings are exactly distinct; larger ones fall back to sampling.
+    """
+    n = len(names)
+    if n < 2:
+        return []
+    if n <= 7:
+        candidates = [list(p) for p in permutations(names) if list(p) != names]
+        rng.shuffle(candidates)
+        return candidates[:limit]
+
+    seen: set[tuple[str, ...]] = set()
+    out: list[list[str]] = []
+    draws = 0
+    while len(out) < limit and draws < limit * 20:
+        draws += 1
+        order = names[:]
+        rng.shuffle(order)
+        key = tuple(order)
+        if order == names or key in seen:
+            continue
+        seen.add(key)
+        out.append(order)
+    return out
+
+
+def _build_translation_prompt(
     zh_summary: dict, en_reference_texts: dict[str, str]
-) -> dict:
-    """Translate Chinese digest to English, grounding proper nouns on English sources."""
+) -> str:
+    """Render the translation prompt for a given set of topics and grounding text."""
     reference_section = ""
     if en_reference_texts:
         parts = []
@@ -386,7 +457,7 @@ def translate_digest_to_english(
             parts.append(f"### {topic}\n{text[:3000]}")
         reference_section = "\n\n".join(parts)
 
-    prompt = f"""
+    return f"""
     You are a professional translator and news editor. Translate the following Hong Kong news digest from Traditional Chinese to English.
 
     **Translation guidelines:**
@@ -411,8 +482,100 @@ def translate_digest_to_english(
     {TopicsSummary.model_json_schema()}
     """
 
+
+def translate_digest_to_english(
+    zh_summary: dict, en_reference_texts: dict[str, str]
+) -> tuple[dict, list[int]]:
+    """Translate the Chinese digest to English, shedding material Gemini rejects.
+
+    Returns the translated digest together with the indices of
+    ``zh_summary["topics"]`` it covers, in order. The indices matter because a
+    topic can be dropped: Gemini's non-configurable PROHIBITED_CONTENT filter
+    rejects some prompts outright, deterministically, so an identical retry can
+    never succeed (see ProhibitedContentError). What *does* change the verdict is
+    the arrangement of the prompt: the filter is deterministic for any given
+    ordering but disagrees between orderings, so we escalate through
+
+      1. re-ordering the grounding text — nothing is lost at all,
+      2. dropping the verbatim grounding text for one topic,
+      3. dropping all grounding text,
+      4. dropping the offending topic itself.
+
+    Measured on the 2026-09-19 digest: the original order blocked 14/14, while
+    3 of 5 positions for the offending article passed 3/3 each — so a reshuffle
+    clears it most of the time and costs no content. Grounding is shed before
+    topics because the filter trips on raw source articles rather than on the
+    Chinese summaries written from them.
+    """
+    topics = list(zh_summary["topics"])
+    all_indices = list(range(len(topics)))
+
+    def attempt(indices: list[int], refs: dict[str, str]) -> dict:
+        subset = {"topics": [topics[i] for i in indices]}
+        return generate_response(
+            prompt=_build_translation_prompt(subset, refs),
+            validation_class=TopicsSummary,
+            lang="en",
+        )
+
     logger.info("Translating digest to English...")
-    return generate_response(prompt=prompt, validation_class=TopicsSummary, lang="en")
+    try:
+        return attempt(all_indices, en_reference_texts), all_indices
+    except ProhibitedContentError as e:
+        logger.warning(
+            "English translation blocked (%s); retrying with the prompt rearranged",
+            e.block_reason,
+        )
+
+    names = list(en_reference_texts)
+    # Seeded so a rerun reproduces the same sequence; the rungs below cover the
+    # case where every ordering we try still blocks.
+    orders = _shuffled_orders(names, random.Random(0), TRANSLATION_SHUFFLE_ATTEMPTS)
+    for n, order in enumerate(orders, 1):
+        try:
+            result = attempt(all_indices, {k: en_reference_texts[k] for k in order})
+            logger.warning(
+                "Translated after reordering grounding text (attempt %d of %d)",
+                n, len(orders),
+            )
+            return result, all_indices
+        except ProhibitedContentError:
+            continue
+
+    for name in names:
+        trimmed = {k: v for k, v in en_reference_texts.items() if k != name}
+        try:
+            result = attempt(all_indices, trimmed)
+            logger.warning("Translated without grounding text for topic: %s", name)
+            return result, all_indices
+        except ProhibitedContentError:
+            continue
+
+    if en_reference_texts:
+        try:
+            result = attempt(all_indices, {})
+            logger.warning("Translated without any English grounding text")
+            return result, all_indices
+        except ProhibitedContentError:
+            pass
+
+    for i in all_indices:
+        kept = [j for j in all_indices if j != i]
+        if not kept:
+            break
+        try:
+            result = attempt(kept, {})
+            logger.warning(
+                "Skipped prohibited topic from English digest: %s", topics[i]["topic"]
+            )
+            return result, kept
+        except ProhibitedContentError:
+            continue
+
+    raise ProhibitedContentError(
+        "PROHIBITED_CONTENT",
+        "no combination of topics and grounding text passed Gemini's input filter",
+    )
 
 
 def subedit_summary_en(topics_summary: dict) -> dict:

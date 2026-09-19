@@ -54,6 +54,11 @@ def _save_json(path: Path, data: object) -> None:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
 
+def _load_json(path: Path) -> object:
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
 def load_articles(
     rss_feeds: dict[str, str],
     english_sources: set[str] | None = None,
@@ -171,19 +176,25 @@ def generate_english_digest(
             topic_name = formatted_summary_zh["topics"][i]["topic"]
             en_reference_texts[topic_name] = generate_article_text(valid_uuids, df)
 
-    translated = gemini.translate_digest_to_english(formatted_summary_zh, en_reference_texts)
+    translated, kept_indices = gemini.translate_digest_to_english(
+        formatted_summary_zh, en_reference_texts
+    )
     _save_json(TEMP_DIR / "08-en_translated.json", translated)
 
     # Subedit English version
     edited_en = gemini.subedit_summary_en(translated)
     _save_json(TEMP_DIR / "09-en_subedited.json", edited_en)
 
-    # Build English links per topic (index-based to avoid name mismatch)
+    # Build English links per topic. kept_indices maps each translated topic back
+    # to its slot in the Chinese digest; that mapping shifts when a topic is
+    # skipped as prohibited, and indexing the Chinese lists directly would then
+    # attach every later topic's links to the wrong story.
     en_topics_link = []
     for i, t in enumerate(edited_en["topics"]):
+        src = kept_indices[i] if i < len(kept_indices) else i
         topic_name = t["topic"]
-        zh_articles = topics_link_zh[i]["topic"]["articles"] if i < len(topics_link_zh) else []
-        en_uuids = en_articles_by_index[i] if i < len(en_articles_by_index) else []
+        zh_articles = topics_link_zh[src]["topic"]["articles"] if src < len(topics_link_zh) else []
+        en_uuids = en_articles_by_index[src] if src < len(en_articles_by_index) else []
         valid_en = [u for u in en_uuids if u in df.index]
         valid_zh = [u for u in zh_articles if u in df.index]
         links = generate_english_article_links(valid_zh, valid_en, df)
@@ -194,14 +205,24 @@ def generate_english_digest(
     return append_summary_and_links_en(edited_en, en_topics_link)
 
 
-def run_pipeline(draft_only: bool = False) -> None:
-    """Main entry point: load articles, generate digest, publish."""
+def run_pipeline(draft_only: bool = False, english_only: bool = False) -> None:
+    """Main entry point: load articles, generate digest, publish.
+
+    ``english_only`` republishes just the English edition from the Chinese
+    digest already saved in ``temp/``. It exists because the two editions share
+    one process: if the English half fails after the Chinese has published,
+    rerunning the pipeline would re-send the Chinese digest to subscribers.
+    """
     logging.basicConfig(level=logging.INFO)
 
     zh_url = os.environ.get("SUBSTACK_URL")
     en_url = os.environ.get("SUBSTACK_EN_URL")
 
-    for label, url in [("Chinese", zh_url), ("English", en_url)]:
+    if english_only and not en_url:
+        print("ERROR: --english-only requires SUBSTACK_EN_URL to be set", file=sys.stderr)
+        sys.exit(2)
+
+    for label, url in [("Chinese", None if english_only else zh_url), ("English", en_url)]:
         if url is None:
             continue
         try:
@@ -220,25 +241,33 @@ def run_pipeline(draft_only: bool = False) -> None:
     # Filter to Chinese-only articles for the Chinese digest pipeline
     df_zh = df[df["language"] == "zh"] if "language" in df.columns else df
 
-    edited_text, pre_edited_text, formatted_summary, topics_link = generate_digest(
-        df_zh, NUMBER_OF_TOPICS
-    )
+    if english_only:
+        # Reuse the exact Chinese digest that already published, so the English
+        # edition matches it rather than being regenerated from scratch.
+        formatted_summary = _load_json(TEMP_DIR / "03-topics_summary.json")
+        topics_link = _load_json(TEMP_DIR / "04-topics_link.json")
+        logger.info("Reusing saved Chinese digest from %s", TEMP_DIR)
+    else:
+        edited_text, pre_edited_text, formatted_summary, topics_link = generate_digest(
+            df_zh, NUMBER_OF_TOPICS
+        )
 
-    (TEMP_DIR / "summary_pre_edited.md").write_text(pre_edited_text)
-    (TEMP_DIR / "summary_edited.md").write_text(edited_text)
+        (TEMP_DIR / "summary_pre_edited.md").write_text(pre_edited_text)
+        (TEMP_DIR / "summary_edited.md").write_text(edited_text)
 
     earliest = df_zh.published.min()
     latest = df_zh.published.max()
     now = datetime.now()
 
     # Publish Chinese digest
-    publish_substack_post(
-        title=f"{now.year}年{now.month}月{now.day}日 香港每週新聞摘要",
-        subtitle=f"本期涵蓋 {earliest.month}月{earliest.day}日 至 {latest.month}月{latest.day}日 的新聞。本新聞摘要由 {MODEL} 自動生成。",
-        content=edited_text,
-        draft_only=draft_only,
-        publication_url=zh_url,
-    )
+    if not english_only:
+        publish_substack_post(
+            title=f"{now.year}年{now.month}月{now.day}日 香港每週新聞摘要",
+            subtitle=f"本期涵蓋 {earliest.month}月{earliest.day}日 至 {latest.month}月{latest.day}日 的新聞。本新聞摘要由 {MODEL} 自動生成。",
+            content=edited_text,
+            draft_only=draft_only,
+            publication_url=zh_url,
+        )
 
     # Generate and publish English digest
     if en_url:
@@ -262,5 +291,10 @@ if __name__ == "__main__":
         action="store_true",
         help="Create a Substack draft without publishing or emailing",
     )
+    parser.add_argument(
+        "--english-only",
+        action="store_true",
+        help="Publish only the English edition, reusing the Chinese digest saved in temp/",
+    )
     args = parser.parse_args()
-    run_pipeline(draft_only=args.draft)
+    run_pipeline(draft_only=args.draft, english_only=args.english_only)

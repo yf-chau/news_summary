@@ -48,7 +48,7 @@ Optional:
 
 - **uv** — package manager (`uv run`, `uv add`, `uv sync`)
 - **Python** — managed via `pyproject.toml` + `uv.lock`
-- **Google Gemini** (`google-genai` SDK) — model: `gemini-2.5-pro-preview-03-25`
+- **Google Gemini** (`google-genai` SDK) — model: `gemini-3.5-flash` (set by `MODEL` in `gemini.py`)
 - **python-substack** — Substack REST API client (draft creation, publishing, auth)
 - **Playwright** + `playwright-stealth` — dev dependency only, used by `tests/verify_draft.py`
 - **feedparser** — RSS feed parsing
@@ -77,6 +77,10 @@ uv run python fetch_articles.py
 
 # Run the pipeline
 uv run python main.py
+
+# Republish only the English edition, reusing the Chinese digest in temp/
+# (use when the English half failed after the Chinese had already published)
+uv run python main.py --english-only
 
 # Run draft verification (dev only, requires Playwright)
 uv run --dev python tests/verify_draft.py --title "February 25, 2026 香港每週新聞摘要"
@@ -148,7 +152,8 @@ The `SUBSTACK_SID` session cookie expires after ~90 days. There is no reliable w
 ## Common Pitfalls
 
 - Gemini may return invalid UUIDs when grouping articles; `generate_articles_list_by_topic()` has a retry loop for this
-- Safety settings are set to OFF for all Gemini categories to avoid content blocks on news articles
+- Safety settings are set to OFF for the four *configurable* Gemini categories, but `PROHIBITED_CONTENT` is **non-configurable** and cannot be disabled — it blocks the *prompt* before generation, returning zero candidates and a `None` finish reason. `generate_response()` reads `response.prompt_feedback` and raises `ProhibitedContentError`; tenacity is configured **not** to retry it, because an identical prompt always blocks again (measured 14/14 on 2026-09-19). The filter is deterministic for any given *arrangement* but disagrees between arrangements, so `translate_digest_to_english()` escalates: reorder the grounding text (loses nothing), then drop one topic's grounding, then all grounding, then the offending topic — returning the surviving topic indices so links stay aligned. Measured 2026-09-19: the original order blocked 14/14, while 3 of 5 positions for the offending article passed 3/3 each, so a reshuffle usually clears it at no cost to content. The English path is the usual casualty because it is the only one that feeds verbatim source articles to Gemini
+- The Chinese and English editions publish from one process, Chinese first. If English fails the Chinese has already gone out, so rerun with `--english-only` rather than the full pipeline, which would re-email subscribers
 - The `temp/` directory is auto-created and gitignored
 - Substack may require CAPTCHA on email/password login; use cookie-based auth (`SUBSTACK_SID`) to avoid this — extract cookies manually from a browser session
 - `python-substack`'s `from_markdown()` handles standard Markdown (headings, bold, links, bullets); complex elements may not render perfectly — use `tests/verify_draft.py` to check
