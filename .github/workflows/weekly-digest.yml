@@ -53,7 +53,15 @@ jobs:
 
       - name: Release sleep lock
         if: always()
-        run: kill "$CAFFEINATE_PID" 2>/dev/null || true
+        # Swap the job-long lock for a short grace lock instead of a bare
+        # kill: the automatic Post-step cleanup and the runner's final result
+        # upload run AFTER this step, and a job picked up inside a DarkWake
+        # window re-sleeps within seconds of the assertion dropping (auth
+        # check run 38759250425 passed every step, then lost communication
+        # during post cleanup). 120s self-expires, so nothing leaks.
+        run: |
+          nohup caffeinate -s -t 120 >/dev/null 2>&1 &
+          kill "$CAFFEINATE_PID" 2>/dev/null || true
 
       - name: Notify on failure
         if: failure()
